@@ -1,0 +1,20 @@
+Privacy Policy for Alal AI
+
+Last updated: July 4, 2026
+
+This privacy policy governs your use of the mobile application Alal AI ("Application") for mobile devices that was created by Alal AI. The Application is designed to run locally on your device and does not collect, store, or transmit any personal data.
+
+Information We Do Not Collect
+- We do not collect any personal information such as name, email address, phone number, or location.
+- We do not collect any usage data, analytics, or diagnostics.
+- We do not store any of your conversations, inputs, or outputs beyond the temporary memory required for the current session.
+- We do not use any third‑party analytics, advertising, or tracking services.
+
+Data Storage and Processing
+All processing of your inputs and generation of responses occurs entirely on your device using locally stored model weights that you have chosen to download. No data leaves your device unless you explicitly choose to share it via external means (e.g., copying text to clipboard and sharing via another app).
+
+Changes to This Privacy Policy
+We may update this privacy policy from time to time. We will notify you of any changes by posting the new privacy policy on this page. You are advised to review this privacy policy periodically for any changes.
+
+Contact Us
+If you have any questions or suggestions about our privacy policy, please contact us at privacy@alal.ai.

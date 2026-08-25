@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- REQUIRED FOR DOWNLOADING THE MODEL WEIGHTS -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- REQUIRED FOR FOREGROUND SERVICE (background downloads) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:allowBackup="true"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:hardwareAccelerated="false"
+        android:theme="@style/Theme.Abbas">
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL-pixel.so" android:required="false" />
+        <activity
+            android:name="ai.abbas.app.MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.Abbas"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name="ai.abbas.app.service.DownloadService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
+        <!-- PayPal browser-switch flow activity -->
+        <activity
+            android:name="com.paypal.android.paypalwebpayments.PayPalWebCheckoutActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <!-- Matches the package ID scheme -->
+                <data android:scheme="ai.abbas.app" android:host="paypalpay" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>
