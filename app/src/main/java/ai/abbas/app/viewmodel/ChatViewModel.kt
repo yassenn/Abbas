@@ -4,8 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import ai.mlc.mlcllm.OpenAIProtocol
-import ai.abbas.app.inference.MlcEngineManager
+import ai.abbas.app.inference.LlamaEngineManager
 import ai.abbas.app.data.MessageDao
 import ai.abbas.app.data.MessageEntity
 import ai.abbas.app.data.ChatSessionEntity
@@ -54,7 +53,7 @@ data class ChatSession(
 
 class ChatViewModel(
     private val context: android.content.Context,
-    private val mlcEngineManager: MlcEngineManager,
+    private val llmEngineManager: LlamaEngineManager,
     private val messageDao: MessageDao,
     private val knowledgeRepository: KnowledgeRepository
 ) : ViewModel() {
@@ -76,7 +75,7 @@ class ChatViewModel(
         }
     }
 
-    val currentModel: StateFlow<ModelConfig?> = mlcEngineManager.currentModel
+    val currentModel: StateFlow<ModelConfig?> = llmEngineManager.currentModel
 
     private val prefs = ai.abbas.app.data.SecurityUtils.getEncryptedPrefs(context)
     private val customModelsKey = "custom_models_json"
@@ -117,11 +116,11 @@ class ChatViewModel(
     }
 
     fun isModelDownloaded(model: ModelConfig): Boolean {
-        return mlcEngineManager.isModelDownloaded(model)
+        return llmEngineManager.isModelDownloaded(model)
     }
 
     fun isModelAvailable(model: ModelConfig): Boolean {
-        return mlcEngineManager.isModelDownloaded(model) || mlcEngineManager.isModelInAssets(model)
+        return llmEngineManager.isModelDownloaded(model) || llmEngineManager.isModelInAssets(model)
     }
 
     private val _dbMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -144,7 +143,7 @@ class ChatViewModel(
     private val _currentSessionId = MutableStateFlow<String?>(null)
     val currentSessionId: StateFlow<String?> = _currentSessionId.asStateFlow()
 
-    private val mlcHistory = mutableListOf<OpenAIProtocol.ChatCompletionMessage>()
+    private val llmHistory = mutableListOf<LlamaEngineManager.ChatMessage>()
     private var messagesJob: Job? = null
     private var initJob: Job? = null
 
@@ -178,7 +177,7 @@ class ChatViewModel(
         _customModels.value = com.google.gson.Gson().fromJson(customJson, type)
 
         loadSessions()
-        val compatibleModels = allModels.value.filter { mlcEngineManager.isDeviceCapable(it) }
+        val compatibleModels = allModels.value.filter { llmEngineManager.isDeviceCapable(it) }
         val lastModelId = prefs.getString("last_model_id", null)
         android.util.Log.d("Abbas", "Init: allModels=${allModels.value.map{it.id}}, compatibleModels=${compatibleModels.map{it.id}}, lastModelId=$lastModelId")
 
@@ -220,7 +219,7 @@ class ChatViewModel(
 
     fun onModelSelected(model: ModelConfig) {
         if (isModelAvailable(model)) {
-            synchronized(mlcHistory) { mlcHistory.clear() }
+            synchronized(llmHistory) { llmHistory.clear() }
             initializeEngine(model)
         } else {
             // Model not available — queue it for download
@@ -229,12 +228,12 @@ class ChatViewModel(
     }
 
     fun switchModel() {
-        val compatibleModels = allModels.value.filter { mlcEngineManager.isDeviceCapable(it) }
+        val compatibleModels = allModels.value.filter { llmEngineManager.isDeviceCapable(it) }
         _uiState.value = ChatUiState.SelectingModel(compatibleModels)
     }
 
     fun onCancelModelSelection() {
-        if (mlcEngineManager.currentModel.value != null) {
+        if (llmEngineManager.currentModel.value != null) {
             _uiState.value = ChatUiState.Ready
         }
     }
@@ -244,8 +243,8 @@ class ChatViewModel(
     }
 
     fun exitDonation() {
-        _uiState.value = if (mlcEngineManager.currentModel.value != null) ChatUiState.Ready else {
-            val compatibleModels = allModels.value.filter { mlcEngineManager.isDeviceCapable(it) }
+        _uiState.value = if (llmEngineManager.currentModel.value != null) ChatUiState.Ready else {
+            val compatibleModels = allModels.value.filter { llmEngineManager.isDeviceCapable(it) }
             ChatUiState.SelectingModel(compatibleModels)
         }
     }
@@ -356,12 +355,12 @@ class ChatViewModel(
                     _dbMessages.value = chatMessages
 
                     viewModelScope.launch(Dispatchers.Default + exceptionHandler) {
-                        synchronized(mlcHistory) {
-                            mlcHistory.clear()
+                        synchronized(llmHistory) {
+                            llmHistory.clear()
                             chatMessages.forEach { msg ->
-                                mlcHistory.add(OpenAIProtocol.ChatCompletionMessage(
-                                    role = if (msg.isUser) OpenAIProtocol.ChatCompletionRole.user else OpenAIProtocol.ChatCompletionRole.assistant,
-                                    content = OpenAIProtocol.ChatCompletionMessageContent(msg.text)
+                                llmHistory.add(LlamaEngineManager.ChatMessage(
+                                    role = if (msg.isUser) "user" else "assistant",
+                                    content = msg.text
                                 ))
                             }
                         }
@@ -373,8 +372,8 @@ class ChatViewModel(
     private fun initializeEngine(model: ModelConfig) {
         initJob?.cancel()
         initJob = viewModelScope.launch(exceptionHandler) {
-            val isDownloaded = mlcEngineManager.isModelDownloaded(model)
-            val isInAssets = mlcEngineManager.isModelInAssets(model)
+            val isDownloaded = llmEngineManager.isModelDownloaded(model)
+            val isInAssets = llmEngineManager.isModelInAssets(model)
 
             val initialStatus = when {
                 isDownloaded -> "Loading model..."
@@ -385,7 +384,7 @@ class ChatViewModel(
             val initState = mapOf(model.id to ModelDownloadState(model, 0f, initialStatus))
             _uiState.value = ChatUiState.DownloadingModels(initState)
 
-            val result = mlcEngineManager.initializeEngine(model, _hfToken.value) { progress, status ->
+            val result = llmEngineManager.initializeEngine(model, _hfToken.value) { progress, status ->
                 _uiState.value = ChatUiState.DownloadingModels(
                     mapOf(model.id to ModelDownloadState(model, progress, status))
                 )
@@ -416,7 +415,7 @@ class ChatViewModel(
 
     fun deleteCorruptedAndRetry(model: ModelConfig) {
         viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
-            mlcEngineManager.deleteModelFiles(model)
+            llmEngineManager.deleteModelFiles(model)
             viewModelScope.launch(Dispatchers.Main) {
                 initializeEngine(model)
             }
@@ -425,9 +424,9 @@ class ChatViewModel(
 
     fun deleteModelWeights(model: ModelConfig) {
         viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
-            mlcEngineManager.deleteModelFiles(model)
+            llmEngineManager.deleteModelFiles(model)
             viewModelScope.launch(Dispatchers.Main) {
-                val compatibleModels = allModels.value.filter { mlcEngineManager.isDeviceCapable(it) }
+                val compatibleModels = allModels.value.filter { llmEngineManager.isDeviceCapable(it) }
                 _uiState.value = ChatUiState.SelectingModel(compatibleModels)
             }
         }
@@ -440,8 +439,8 @@ class ChatViewModel(
     fun downloadModel(model: ModelConfig) {
         android.util.Log.d("Abbas", "downloadModel called for ${model.id}")
         if (downloadJobs.containsKey(model.id)) { android.util.Log.d("Abbas", "downloadModel: already in downloadJobs"); return }
-        val isDownloaded = mlcEngineManager.isModelDownloaded(model)
-        val isInAssets = mlcEngineManager.isModelInAssets(model)
+        val isDownloaded = llmEngineManager.isModelDownloaded(model)
+        val isInAssets = llmEngineManager.isModelInAssets(model)
         android.util.Log.d("Abbas", "downloadModel: isDownloaded=$isDownloaded, isInAssets=$isInAssets")
         if (isDownloaded || isInAssets) {
             android.util.Log.d("Abbas", "downloadModel: SKIPPING (already here)")
@@ -513,8 +512,8 @@ class ChatViewModel(
             if (_currentSessionId.value == sessionId) {
                 _currentSessionId.value = null
                 _dbMessages.value = emptyList()
-                synchronized(mlcHistory) {
-                    mlcHistory.clear()
+                synchronized(llmHistory) {
+                    llmHistory.clear()
                 }
             }
         }
@@ -530,12 +529,12 @@ class ChatViewModel(
 
         val lastUserMessage = currentMessages[currentMessages.size - 2]
 
-        synchronized(mlcHistory) {
-            if (mlcHistory.isNotEmpty() && mlcHistory.last().role == OpenAIProtocol.ChatCompletionRole.assistant) {
-                mlcHistory.removeLast()
+        synchronized(llmHistory) {
+            if (llmHistory.isNotEmpty() && llmHistory.last().role == "assistant") {
+                llmHistory.removeLast()
             }
-            if (mlcHistory.isNotEmpty() && mlcHistory.last().role == OpenAIProtocol.ChatCompletionRole.user) {
-                mlcHistory.removeLast()
+            if (llmHistory.isNotEmpty() && llmHistory.last().role == "user") {
+                llmHistory.removeLast()
             }
         }
 
@@ -661,7 +660,7 @@ class ChatViewModel(
     }
 
     fun stopGeneration() {
-        mlcEngineManager.stopGeneration()
+        llmEngineManager.stopGeneration()
         val sessionId = _currentSessionId.value ?: return
         val currentGenMsg = _generatingMessage.value
         if (currentGenMsg != null) {
@@ -706,12 +705,12 @@ class ChatViewModel(
                 }
 
                 // Capture the current history to avoid concurrent modification issues
-                val historySnapshot = synchronized(mlcHistory) { mlcHistory.toList() }
+                val historySnapshot = synchronized(llmHistory) { llmHistory.toList() }
 
                 var fullContent = ""
                 var lastUiUpdateTime = 0L
 
-                mlcEngineManager.generateResponse(prompt, historySnapshot, _generationSettings.value).collect { chunk ->
+                llmEngineManager.generateResponse(prompt, historySnapshot, _generationSettings.value).collect { chunk ->
                     fullContent += chunk
                     tokenCount += 1
 
@@ -807,9 +806,9 @@ class ChatViewModel(
                         messageDao.updateSession(sessionId, updated.text.take(30), updated.text.take(100), System.currentTimeMillis())
                     }
 
-                    synchronized(mlcHistory) {
-                        mlcHistory.add(OpenAIProtocol.ChatCompletionMessage(role = OpenAIProtocol.ChatCompletionRole.user, content = OpenAIProtocol.ChatCompletionMessageContent(prompt)))
-                        mlcHistory.add(OpenAIProtocol.ChatCompletionMessage(role = OpenAIProtocol.ChatCompletionRole.assistant, content = OpenAIProtocol.ChatCompletionMessageContent(updated.text)))
+                    synchronized(llmHistory) {
+                        llmHistory.add(LlamaEngineManager.ChatMessage(role = "user", content = prompt))
+                        llmHistory.add(LlamaEngineManager.ChatMessage(role = "assistant", content = updated.text))
                     }
                 }
             } catch (e: Exception) {
@@ -823,14 +822,14 @@ class ChatViewModel(
         _currentSessionId.value = null
         _dbMessages.value = emptyList()
         _generatingMessage.value = null
-        synchronized(mlcHistory) {
-            mlcHistory.clear()
+        synchronized(llmHistory) {
+            llmHistory.clear()
         }
         messagesJob?.cancel()
     }
 
     fun clearModelCache() {
-        mlcEngineManager.clearModelCache()
+        llmEngineManager.clearModelCache()
         viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
             _sessions.value.forEach {
                 messageDao.deleteMessagesForSession(it.id)
@@ -838,13 +837,13 @@ class ChatViewModel(
             }
         }
         newChat()
-        val compatibleModels = allModels.value.filter { mlcEngineManager.isDeviceCapable(it) }
+        val compatibleModels = allModels.value.filter { llmEngineManager.isDeviceCapable(it) }
         _uiState.value = ChatUiState.SelectingModel(compatibleModels)
     }
 
     override fun onCleared() {
         super.onCleared()
-        mlcEngineManager.release()
+        llmEngineManager.release()
     }
 }
 
@@ -858,7 +857,7 @@ class ChatViewModelFactory(
             @Suppress("UNCHECKED_CAST")
             return ChatViewModel(
                 context,
-                MlcEngineManager(context),
+                LlamaEngineManager(context),
                 db.messageDao(),
                 knowledgeRepo
             ) as T

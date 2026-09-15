@@ -13,9 +13,10 @@ import ai.abbas.app.data.ModelConfig
 fun AddCustomModelDialog(onDismiss: () -> Unit, onAdd: (ModelConfig) -> Unit) {
     var id by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
-    var modelLib by remember { mutableStateOf("") }
+    var ggufFile by remember { mutableStateOf("") }
     var baseUrl by remember { mutableStateOf("") }
-    var vramStr by remember { mutableStateOf("") }
+    var ramStr by remember { mutableStateOf("") }
+    var ctxStr by remember { mutableStateOf("4096") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -24,21 +25,28 @@ fun AddCustomModelDialog(onDismiss: () -> Unit, onAdd: (ModelConfig) -> Unit) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = id, onValueChange = { id = it }, label = { Text("Model ID") })
                 OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Display Name") })
-                OutlinedTextField(value = modelLib, onValueChange = { modelLib = it }, label = { Text("Model Lib Identifier") })
+                OutlinedTextField(value = ggufFile, onValueChange = { ggufFile = it }, label = { Text("GGUF Filename (e.g. model-q4_k_m.gguf)") })
                 OutlinedTextField(value = baseUrl, onValueChange = { baseUrl = it }, label = { Text("Base URL (HuggingFace Resolve)") })
                 OutlinedTextField(
-                    value = vramStr,
-                    onValueChange = { vramStr = it.filter { c -> c.isDigit() } },
-                    label = { Text("Estimated VRAM (Bytes)") },
+                    value = ramStr,
+                    onValueChange = { ramStr = it.filter { c -> c.isDigit() } },
+                    label = { Text("Estimated RAM (Bytes)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+                OutlinedTextField(
+                    value = ctxStr,
+                    onValueChange = { ctxStr = it.filter { c -> c.isDigit() } },
+                    label = { Text("Context Size") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                 )
             }
         },
         confirmButton = {
             TextButton(onClick = {
-                val vram = vramStr.toLongOrNull() ?: 0L
-                if (id.isNotBlank() && name.isNotBlank() && modelLib.isNotBlank() && baseUrl.isNotBlank()) {
-                    onAdd(ModelConfig(id, name, modelLib, baseUrl, vram, isCustom = true))
+                val ram = ramStr.toLongOrNull() ?: 0L
+                val ctx = ctxStr.toIntOrNull() ?: 4096
+                if (id.isNotBlank() && name.isNotBlank() && ggufFile.isNotBlank() && baseUrl.isNotBlank()) {
+                    onAdd(ModelConfig(id, name, ggufFile, baseUrl, ram, ctx, isCustom = true))
                 }
             }) { Text("Add") }
         },

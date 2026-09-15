@@ -1,0 +1,26 @@
+/home/ubuntu/Android/Sdk/cmake/3.22.1/bin/cmake \
+  -H/home/ubuntu/Documents/projects/androidai-experimental/llama/src/main/cpp \
+  -DCMAKE_SYSTEM_NAME=Android \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+  -DCMAKE_SYSTEM_VERSION=26 \
+  -DANDROID_PLATFORM=android-26 \
+  -DANDROID_ABI=arm64-v8a \
+  -DCMAKE_ANDROID_ARCH_ABI=arm64-v8a \
+  -DANDROID_NDK=/home/ubuntu/Android/Sdk/ndk/25.1.8937393 \
+  -DCMAKE_ANDROID_NDK=/home/ubuntu/Android/Sdk/ndk/25.1.8937393 \
+  -DCMAKE_TOOLCHAIN_FILE=/home/ubuntu/Android/Sdk/ndk/25.1.8937393/build/cmake/android.toolchain.cmake \
+  -DCMAKE_MAKE_PROGRAM=/home/ubuntu/Android/Sdk/cmake/3.22.1/bin/ninja \
+  -DCMAKE_LIBRARY_OUTPUT_DIRECTORY=/home/ubuntu/Documents/projects/androidai-experimental/llama/build/intermediates/cxx/Release/5x253e40/obj/arm64-v8a \
+  -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/home/ubuntu/Documents/projects/androidai-experimental/llama/build/intermediates/cxx/Release/5x253e40/obj/arm64-v8a \
+  -B/home/ubuntu/Documents/projects/androidai-experimental/llama/.cxx/Release/5x253e40/arm64-v8a \
+  -GNinja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_SHARED_LIBS=ON \
+  -DLLAMA_BUILD_APP=OFF \
+  -DLLAMA_BUILD_COMMON=ON \
+  -DLLAMA_OPENSSL=OFF \
+  -DGGML_NATIVE=OFF \
+  -DGGML_BACKEND_DL=ON \
+  -DGGML_CPU_ALL_VARIANTS=OFF \
+  -DGGML_CPU_ARM_ARCH=armv8-a \
+  -DGGML_LLAMAFILE=OFF

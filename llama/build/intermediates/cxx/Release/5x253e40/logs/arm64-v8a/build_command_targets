@@ -1,0 +1,9 @@
+/home/ubuntu/Android/Sdk/cmake/3.22.1/bin/ninja \
+  -C \
+  /home/ubuntu/Documents/projects/androidai-experimental/llama/.cxx/Release/5x253e40/arm64-v8a \
+  abbas-llama \
+  ggml \
+  ggml-base \
+  ggml-cpu \
+  llama \
+  llama-common

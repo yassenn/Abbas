@@ -15,5 +15,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "GemmaAndroidApp"
 include(":app")
-include(":mlc4j")
-project(":mlc4j").projectDir = File("mlc-llm/android/mlc4j")
+include(":llama")

@@ -13,8 +13,8 @@ android {
         applicationId = "ai.abbas.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 152
-        versionName = "1.4.4-cpu"
+        versionCode = 153
+        versionName = "1.5.0-cpu"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -117,9 +117,9 @@ dependencies {
     // Serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
 
-    // MLC LLM Local dependency
-    implementation(project(":mlc4j"))
-    // Ensure Gson is present if needed by MLC (often is)
+    // llama.cpp LLM Local dependency
+    implementation(project(":llama"))
+    // Gson for model config parsing
     implementation("com.google.code.gson:gson:2.10.1")
 
     testImplementation("junit:junit:4.13.2")

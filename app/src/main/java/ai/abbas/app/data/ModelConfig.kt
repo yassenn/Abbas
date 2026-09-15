@@ -1,77 +1,85 @@
 package ai.abbas.app.data
 
+/**
+ * Model configuration for llama.cpp GGUF models.
+ *
+ * [ggufFile] is the filename within the baseUrl directory (typically "*.gguf").
+ * [baseUrl] should be the HuggingFace resolve/main/ URL.
+ * [estimatedRamBytes] is used for device capability check (total RAM >= this).
+ * [contextSize] is the context window size for this model.
+ */
 data class ModelConfig(
     val id: String,
     val name: String,
-    val modelLib: String,
+    val ggufFile: String,
     val baseUrl: String,
-    val estimatedVramBytes: Long,
+    val estimatedRamBytes: Long,
+    val contextSize: Int = 4096,
     val isCustom: Boolean = false
 )
 
 val availableModels = listOf(
     ModelConfig(
-        id = "Qwen2.5-1.5B-Instruct-q4f16_1-MLC",
+        id = "Qwen2.5-1.5B-Instruct-Q4_K_M",
         name = "Qwen 2.5 1.5B (Alibaba)",
-        modelLib = "qwen2_q4f16_1_2e221f430380225c03990ad24c3d030e",
-        baseUrl = "https://huggingface.co/mlc-ai/Qwen2.5-1.5B-Instruct-q4f16_1-MLC/resolve/main/",
-        estimatedVramBytes = 3980990464L,
+        ggufFile = "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+        baseUrl = "https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/",
+        estimatedRamBytes = 2000000000L,
+        contextSize = 4096,
         isCustom = false
     ),
     ModelConfig(
-        id = "Qwen2.5-7B-Instruct-q4f16_1-MLC",
-        name = "Qwen 2.5 7B (Alibaba)",
-        modelLib = "qwen2_q4f16_1_2e221f430380225c03990ad24c3d030e",
-        baseUrl = "https://huggingface.co/mlc-ai/Qwen2.5-7B-Instruct-q4f16_1-MLC/resolve/main/",
-        estimatedVramBytes = 6000000000L,
+        id = "Qwen2.5-3B-Instruct-Q4_K_M",
+        name = "Qwen 2.5 3B (Alibaba)",
+        ggufFile = "qwen2.5-3b-instruct-q4_k_m.gguf",
+        baseUrl = "https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/",
+        estimatedRamBytes = 3000000000L,
+        contextSize = 4096,
         isCustom = false
     ),
     ModelConfig(
-        id = "Phi-3.5-mini-instruct-q4f16_0-MLC",
-        name = "Phi-3.5 Mini (Microsoft)",
-        modelLib = "phi3_q4f16_0_5fe42298399a05eb2a1878fdc1c8c115",
-        baseUrl = "https://huggingface.co/mlc-ai/Phi-3.5-mini-instruct-q4f16_0-MLC/resolve/main/",
-        estimatedVramBytes = 4250586449L,
-        isCustom = false
-    ),
-    ModelConfig(
-        id = "gemma-4-E2B-it-q4f16_1-MLC",
-        name = "Gemma 4 E2B (Google)",
-        modelLib = "gemma4_q4f16_1_5cc7dbd3ae3d1040984d9720b2d7b7d4",
-        baseUrl = "https://huggingface.co/welcoma/gemma-4-E2B-it-q4f16_1-MLC/resolve/main/",
-        estimatedVramBytes = 2500000000L,
-        isCustom = false
-    ),
-    ModelConfig(
-        id = "gemma-4-E4B-it-q4f16_1-MLC",
-        name = "Gemma 4 E4B (Google)",
-        modelLib = "gemma4_q4f16_1_5cc7dbd3ae3d1040984d9720b2d7b7d4",
-        baseUrl = "https://huggingface.co/welcoma/gemma-4-E4B-it-q4f16_1-MLC/resolve/main/",
-        estimatedVramBytes = 3500000000L,
-        isCustom = false
-    ),
-    ModelConfig(
-        id = "Llama-3.2-3B-Instruct-q4f16_0-MLC",
+        id = "Llama-3.2-3B-Instruct-Q4_K_M",
         name = "Llama 3.2 3B (Meta)",
-        modelLib = "llama_q4f16_0_2d32572d8a4ab2af20a1f587ef6c8c63",
-        baseUrl = "https://huggingface.co/mlc-ai/Llama-3.2-3B-Instruct-q4f16_0-MLC/resolve/main/",
-        estimatedVramBytes = 4679979417L,
+        ggufFile = "llama-3.2-3b-instruct-q4_k_m.gguf",
+        baseUrl = "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/",
+        estimatedRamBytes = 3000000000L,
+        contextSize = 4096,
         isCustom = false
     ),
     ModelConfig(
-        id = "Qwen3-8B-q4f16_1-MLC",
-        name = "Qwen 3 8B (Alibaba)",
-        modelLib = "qwen2_q4f16_1_2e221f430380225c03990ad24c3d030e", // FIXME: needs qwen3 kernel in runtime
-        baseUrl = "https://huggingface.co/mlc-ai/Qwen3-8B-q4f16_1-MLC/resolve/main/",
-        estimatedVramBytes = 6000000000L,
+        id = "Phi-3.5-mini-instruct-Q4_K_M",
+        name = "Phi-3.5 Mini (Microsoft)",
+        ggufFile = "phi-3.5-mini-instruct-q4_k_m.gguf",
+        baseUrl = "https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/",
+        estimatedRamBytes = 3000000000L,
+        contextSize = 4096,
         isCustom = false
     ),
     ModelConfig(
-        id = "Mistral-7B-Instruct-v0.3-q4f16_1-MLC",
+        id = "Phi-4-mini-instruct-Q4_K_M",
+        name = "Phi-4 Mini (Microsoft)",
+        ggufFile = "phi-4-mini-instruct-q4_k_m.gguf",
+        baseUrl = "https://huggingface.co/bartowski/Phi-4-mini-instruct-GGUF/resolve/main/",
+        estimatedRamBytes = 3000000000L,
+        contextSize = 4096,
+        isCustom = false
+    ),
+    ModelConfig(
+        id = "Gemma-2-2B-it-Q4_K_M",
+        name = "Gemma 2 2B (Google)",
+        ggufFile = "gemma-2-2b-it-q4_k_m.gguf",
+        baseUrl = "https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/",
+        estimatedRamBytes = 2000000000L,
+        contextSize = 4096,
+        isCustom = false
+    ),
+    ModelConfig(
+        id = "Mistral-7B-Instruct-v0.3-Q4_K_M",
         name = "Mistral 7B v0.3",
-        modelLib = "mistral_q4f16_1_c2cba77a6def4dd52f7e20b5d8576ab5",
-        baseUrl = "https://huggingface.co/mlc-ai/Mistral-7B-Instruct-v0.3-q4f16_1-MLC/resolve/main/",
-        estimatedVramBytes = 4115131883L,
+        ggufFile = "mistral-7b-instruct-v0.3-q4_k_m.gguf",
+        baseUrl = "https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/",
+        estimatedRamBytes = 5500000000L,
+        contextSize = 4096,
         isCustom = false
     )
 )

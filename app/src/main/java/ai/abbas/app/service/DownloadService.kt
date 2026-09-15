@@ -12,7 +12,7 @@ import androidx.core.app.NotificationCompat
 import ai.abbas.app.MainActivity
 import ai.abbas.app.R
 import ai.abbas.app.data.ModelConfig
-import ai.abbas.app.inference.MlcEngineManager
+import ai.abbas.app.inference.LlamaEngineManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,7 +41,8 @@ class DownloadService : Service() {
         const val EXTRA_MODEL_ID = "model_id"
         const val EXTRA_MODEL_NAME = "model_name"
         const val EXTRA_MODEL_BASE_URL = "model_base_url"
-        const val EXTRA_MODEL_LIB = "model_lib"
+        const val EXTRA_GGUF_FILE = "gguf_file"
+        const val EXTRA_CONTEXT_SIZE = "context_size"
         const val EXTRA_ESTIMATED_VRAM = "estimated_vram_bytes"
         const val EXTRA_HF_TOKEN = "hf_token"
 
@@ -62,8 +63,9 @@ class DownloadService : Service() {
                 putExtra(EXTRA_MODEL_ID, model.id)
                 putExtra(EXTRA_MODEL_NAME, model.name)
                 putExtra(EXTRA_MODEL_BASE_URL, model.baseUrl)
-                putExtra(EXTRA_MODEL_LIB, model.modelLib)
-                putExtra(EXTRA_ESTIMATED_VRAM, model.estimatedVramBytes)
+                putExtra(EXTRA_GGUF_FILE, model.ggufFile)
+                putExtra(EXTRA_CONTEXT_SIZE, model.contextSize)
+                putExtra(EXTRA_ESTIMATED_VRAM, model.estimatedRamBytes)
                 putExtra(EXTRA_HF_TOKEN, hfToken)
             }
             context.startForegroundService(intent)
@@ -87,7 +89,7 @@ class DownloadService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = mutableMapOf<String, Job>()
-    private var mlcEngineManager: MlcEngineManager? = null
+    private var engineManager: LlamaEngineManager? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -117,8 +119,8 @@ class DownloadService : Service() {
     private fun startDownloadTask(model: ModelConfig, hfToken: String) {
         if (jobs.containsKey(model.id)) return
 
-        if (mlcEngineManager == null) {
-            mlcEngineManager = MlcEngineManager(applicationContext)
+        if (engineManager == null) {
+            engineManager = LlamaEngineManager(applicationContext)
         }
 
         val state = ServiceDownloadState(model.id, model.name, 0f, "Starting...")
@@ -128,7 +130,7 @@ class DownloadService : Service() {
 
         val job = scope.launch {
             try {
-                val mgr = mlcEngineManager!!
+                val mgr = engineManager!!
                 val result = mgr.downloadWeightsOnly(model, hfToken.ifBlank { null }) { progress, status ->
                     val s = state.copy(progress = progress, status = status)
                     _currentStates[model.id] = s
@@ -245,9 +247,10 @@ class DownloadService : Service() {
         return ModelConfig(
             id = intent.getStringExtra(EXTRA_MODEL_ID) ?: "",
             name = intent.getStringExtra(EXTRA_MODEL_NAME) ?: "",
-            modelLib = intent.getStringExtra(EXTRA_MODEL_LIB) ?: "",
+            ggufFile = intent.getStringExtra(EXTRA_GGUF_FILE) ?: "",
             baseUrl = intent.getStringExtra(EXTRA_MODEL_BASE_URL) ?: "",
-            estimatedVramBytes = intent.getLongExtra(EXTRA_ESTIMATED_VRAM, 0L)
+            estimatedRamBytes = intent.getLongExtra(EXTRA_ESTIMATED_VRAM, 0L),
+            contextSize = intent.getIntExtra(EXTRA_CONTEXT_SIZE, 4096)
         )
     }
 }

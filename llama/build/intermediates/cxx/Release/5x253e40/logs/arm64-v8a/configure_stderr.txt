@@ -1,0 +1,14 @@
+CMAKE_BUILD_TYPE=Release
+CMake Warning at /home/ubuntu/Documents/projects/androidai-experimental/llama.cpp-vendor/cmake/license.cmake:18 (message):
+  License file
+  '/home/ubuntu/Documents/projects/androidai-experimental/llama.cpp-vendor/LICENSE'
+  not found
+Call Stack (most recent call first):
+  /home/ubuntu/Documents/projects/androidai-experimental/llama.cpp-vendor/CMakeLists.txt:198 (license_add_file)
+
+
+CMake Warning at /home/ubuntu/Documents/projects/androidai-experimental/llama.cpp-vendor/common/CMakeLists.txt:33 (message):
+  Git repository not found; to enable automatic generation of build info,
+  make sure Git is installed and the project is a Git repository.
+
+

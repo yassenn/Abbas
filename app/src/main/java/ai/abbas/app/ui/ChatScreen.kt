@@ -625,7 +625,7 @@ fun ModelDropdown(
                                     color = if (isSelected) AbbasBlue else MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    "${String.format("%.1f", model.estimatedVramBytes / (1024 * 1024 * 1024.0))} GB",
+                                    "${String.format("%.1f", model.estimatedRamBytes / (1024 * 1024 * 1024.0))} GB",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = Color.Gray
                                 )
@@ -743,7 +743,7 @@ fun ModelSelectionScreen(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(model.name, fontWeight = FontWeight.SemiBold)
                                     Text(
-                                        "${String.format("%.1f", model.estimatedVramBytes / (1024 * 1024 * 1024.0))} GB",
+                                        "${String.format("%.1f", model.estimatedRamBytes / (1024 * 1024 * 1024.0))} GB",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = Color.Gray
                                     )

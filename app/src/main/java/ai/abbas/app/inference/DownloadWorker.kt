@@ -47,7 +47,8 @@ class DownloadWorker(
         try {
             val downloader = ModelDownloader(token)
             // Collect progress and update WorkManager
-            downloader.downloadModel(outputDir, baseUrl).collect { progress ->
+            val ggufFile = "model.gguf" // legacy: single GGUF download
+            downloader.downloadModel(outputDir, baseUrl, ggufFile).collect { progress ->
                 val progressPercent = (progress.progress * 100).toInt()
                 val data = workDataOf(
                     KEY_PROGRESS to progressPercent,
