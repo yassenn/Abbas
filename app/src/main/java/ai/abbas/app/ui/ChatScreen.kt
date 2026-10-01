@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,6 +49,8 @@ import kotlinx.coroutines.launch
 
 const val APP_VERSION = "v${BuildConfig.VERSION_NAME}"
 
+private enum class AppTab { CHAT, HUB }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(viewModel: ChatViewModel) {
@@ -57,6 +60,11 @@ fun ChatScreen(viewModel: ChatViewModel) {
     val currentSessionId by viewModel.currentSessionId.collectAsState()
     val currentModel by viewModel.currentModel.collectAsState()
     val isWebSearchEnabled by viewModel.isWebSearchEnabled.collectAsState()
+    val downloadStates by viewModel.downloadStates.collectAsState()
+    val downloadedModelIds by viewModel.downloadedModelIds.collectAsState()
+
+    var currentTab by rememberSaveable { mutableStateOf(AppTab.CHAT) }
+    var showAddCustomModel by remember { mutableStateOf(false) }
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val snackbarHostState = remember { SnackbarHostState() }
@@ -69,7 +77,6 @@ fun ChatScreen(viewModel: ChatViewModel) {
     }
 
     // Observe transient errors
-    /*
     LaunchedEffect(viewModel.errors) {
         viewModel.errors.collect { error ->
             snackbarHostState.showSnackbar(
@@ -78,7 +85,16 @@ fun ChatScreen(viewModel: ChatViewModel) {
             )
         }
     }
-    */
+
+    if (showAddCustomModel) {
+        AddCustomModelDialog(
+            onDismiss = { showAddCustomModel = false },
+            onAdd = { model ->
+                viewModel.addCustomModel(model)
+                showAddCustomModel = false
+            }
+        )
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -101,7 +117,57 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     )
                 }
                 Divider(modifier = Modifier.padding(vertical = 8.dp), color = Color.Gray.copy(alpha = 0.1f))
-                
+
+                NavigationDrawerItem(
+                    label = { Text("Chat") },
+                    selected = currentTab == AppTab.CHAT,
+                    onClick = {
+                        currentTab = AppTab.CHAT
+                        scope.launch { drawerState.close() }
+                    },
+                    icon = {
+                        Icon(
+                            if (currentTab == AppTab.CHAT) Icons.Filled.Chat else Icons.Outlined.Chat,
+                            contentDescription = null
+                        )
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                    colors = NavigationDrawerItemDefaults.colors(
+                        selectedContainerColor = AbbasBlue.copy(alpha = 0.1f),
+                        selectedTextColor = AbbasBlue,
+                        selectedIconColor = AbbasBlue
+                    )
+                )
+
+                NavigationDrawerItem(
+                    label = { Text("AI Hub") },
+                    selected = currentTab == AppTab.HUB,
+                    onClick = {
+                        currentTab = AppTab.HUB
+                        scope.launch { drawerState.close() }
+                    },
+                    icon = {
+                        BadgedBox(
+                            badge = {
+                                if (downloadStates.isNotEmpty()) Badge { Text("${downloadStates.size}") }
+                            }
+                        ) {
+                            Icon(
+                                if (currentTab == AppTab.HUB) Icons.Filled.CloudDownload else Icons.Outlined.CloudDownload,
+                                contentDescription = null
+                            )
+                        }
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                    colors = NavigationDrawerItemDefaults.colors(
+                        selectedContainerColor = AbbasBlue.copy(alpha = 0.1f),
+                        selectedTextColor = AbbasBlue,
+                        selectedIconColor = AbbasBlue
+                    )
+                )
+
+                Divider(modifier = Modifier.padding(vertical = 8.dp), color = Color.Gray.copy(alpha = 0.1f))
+
                 NavigationDrawerItem(
                     label = { Text("New Chat") },
                     selected = currentSessionId == null,
@@ -185,10 +251,6 @@ fun ChatScreen(viewModel: ChatViewModel) {
 
                 Divider(modifier = Modifier.padding(vertical = 8.dp), color = Color.Gray.copy(alpha = 0.1f))
                 
-                HfTokenItem(viewModel)
-                
-                Divider(modifier = Modifier.padding(vertical = 8.dp), color = Color.Gray.copy(alpha = 0.1f))
-                
                 var showGenerationSettings by remember { mutableStateOf(false) }
                 if (showGenerationSettings) {
                     GenerationSettingsDialog(
@@ -210,27 +272,6 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 )
 
                 Divider(modifier = Modifier.padding(vertical = 8.dp), color = Color.Gray.copy(alpha = 0.1f))
-                
-                var showAddCustomModel by remember { mutableStateOf(false) }
-                if (showAddCustomModel) {
-                    AddCustomModelDialog(
-                        onDismiss = { showAddCustomModel = false },
-                        onAdd = { model ->
-                            viewModel.addCustomModel(model)
-                            showAddCustomModel = false
-                        }
-                    )
-                }
-                
-                NavigationDrawerItem(
-                    label = { Text("Add Custom Model") },
-                    selected = false,
-                    onClick = { showAddCustomModel = true },
-                    icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                )
-
-                Divider(modifier = Modifier.padding(vertical = 8.dp), color = Color.Gray.copy(alpha = 0.1f))
 
                 NavigationDrawerItem(
                     label = { Text("Donate to Support") },
@@ -244,6 +285,15 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 )
 
                 Spacer(Modifier.height(12.dp))
+                Divider(color = Color.Gray.copy(alpha = 0.1f))
+                Text(
+                    text = APP_VERSION,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        color = Color.Gray.copy(alpha = 0.5f),
+                        fontSize = 10.sp
+                    ),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                )
             }
         }
     ) {
@@ -255,14 +305,13 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 .imePadding(),
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
-                if (uiState != ChatUiState.Donating) {
-                    CenterAlignedTopAppBar(
+                when {
+                    uiState == ChatUiState.Donating -> Unit
+                    currentTab == AppTab.CHAT -> CenterAlignedTopAppBar(
                         title = {
                             ModelDropdown(
                                 currentModel = currentModel,
-                                models = viewModel.allModels.collectAsState().value,
-                                onModelSelected = viewModel::onModelSelected,
-                                isModelAvailable = viewModel::isModelAvailable
+                                onSwitchModel = viewModel::switchModel
                             )
                         },
                         navigationIcon = {
@@ -272,12 +321,47 @@ fun ChatScreen(viewModel: ChatViewModel) {
                         },
                         actions = {
                             if (uiState == ChatUiState.Ready) {
-                                TextButton(onClick = { viewModel.switchModel() }) {
-                                    Text("List", color = AbbasBlue, fontWeight = FontWeight.SemiBold)
+                                IconButton(onClick = { viewModel.enterDonation() }) {
+                                    Icon(
+                                        Icons.Default.Favorite,
+                                        contentDescription = "Support",
+                                        tint = AbbasBlue
+                                    )
                                 }
                             }
                             IconButton(onClick = { viewModel.newChat() }) {
                                 Icon(Icons.Outlined.Add, contentDescription = "New Chat")
+                            }
+                        },
+                        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.background
+                        )
+                    )
+                    // AI Hub top bar lives here so it shares the Chat screen's inset
+                    // handling (otherwise it re-applies the status-bar inset itself).
+                    else -> CenterAlignedTopAppBar(
+                        title = {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    "AI Hub",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "Model Weights",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.Gray
+                                )
+                            }
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                Icon(Icons.Outlined.Menu, contentDescription = "Menu")
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = { showAddCustomModel = true }) {
+                                Icon(Icons.Outlined.AddCircleOutline, contentDescription = "Add custom model")
                             }
                         },
                         colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -289,6 +373,14 @@ fun ChatScreen(viewModel: ChatViewModel) {
             containerColor = MaterialTheme.colorScheme.background
         ) { paddingValues ->
             Box(modifier = Modifier.fillMaxSize()) {
+                if (currentTab == AppTab.HUB && uiState != ChatUiState.Donating) {
+                    Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+                        AiHubScreen(
+                            viewModel = viewModel,
+                            onOpenChat = { currentTab = AppTab.CHAT }
+                        )
+                    }
+                } else {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -306,91 +398,35 @@ fun ChatScreen(viewModel: ChatViewModel) {
                         }
                         is ChatUiState.SelectingModel -> {
                             val state = uiState as ChatUiState.SelectingModel
-                            ModelSelectionScreen(
-                                models = state.models,
-                                onModelSelected = viewModel::onModelSelected,
-                                isModelAvailable = viewModel::isModelAvailable,
-                                isModelDownloading = viewModel::isModelDownloading,
-                                getDownloadState = viewModel::getDownloadState,
-                                onDownloadModel = viewModel::downloadModel,
+                            ModelLoadScreen(
+                                models = state.models.filter { downloadedModelIds.contains(it.id) },
+                                onInitialize = viewModel::initModel,
+                                onOpenHub = { currentTab = AppTab.HUB },
                                 onCancel = if (currentModel != null) { { viewModel.onCancelModelSelection() } } else null
                             )
                         }
-                        is ChatUiState.DownloadingModels -> {
-                            val state = uiState as ChatUiState.DownloadingModels
-                            val downloads = state.active.values.toList()
+                        is ChatUiState.LoadingModel -> {
+                            val state = uiState as ChatUiState.LoadingModel
                             Column(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .padding(16.dp),
-                                verticalArrangement = Arrangement.Center
+                                verticalArrangement = Arrangement.Center,
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
+                                CircularProgressIndicator(color = AbbasBlue)
+                                Spacer(modifier = Modifier.height(20.dp))
                                 Text(
-                                    "Downloading Models",
-                                    style = MaterialTheme.typography.titleLarge,
+                                    "Loading ${state.model.name}",
+                                    style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(bottom = 24.dp)
+                                    modifier = Modifier.padding(bottom = 6.dp)
                                 )
-                                downloads.forEach { ds ->
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 8.dp)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                ds.model.name,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.Medium,
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                            IconButton(
-                                                onClick = { viewModel.cancelModelDownload(ds.model.id) },
-                                                modifier = Modifier.size(28.dp)
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.Close,
-                                                    contentDescription = "Cancel",
-                                                    tint = Color.Gray,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        LinearProgressIndicator(
-                                            progress = ds.progress.coerceIn(0f, 1f),
-                                            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
-                                            color = AbbasBlue,
-                                            trackColor = AbbasBlue.copy(alpha = 0.1f)
-                                        )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            ds.status,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = Color.Gray
-                                        )
-                                    }
-                                    if (ds != downloads.last()) {
-                                        Divider(
-                                            modifier = Modifier.padding(vertical = 8.dp),
-                                            color = Color.Gray.copy(alpha = 0.15f)
-                                        )
-                                    }
-                                }
-                                if (downloads.size > 1) {
-                                    Spacer(modifier = Modifier.height(24.dp))
-                                    OutlinedButton(
-                                        onClick = { viewModel.cancelAllDownloads() },
-                                        border = BorderStroke(1.dp, Color.Gray.copy(alpha = 0.5f)),
-                                        modifier = Modifier.align(Alignment.CenterHorizontally)
-                                    ) {
-                                        Text("Cancel All Downloads", color = Color.Gray)
-                                    }
-                                }
+                                Text(
+                                    state.status,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray
+                                )
                             }
                         }
                         is ChatUiState.Donating -> {
@@ -476,7 +512,10 @@ fun ChatScreen(viewModel: ChatViewModel) {
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Button(
-                                            onClick = { viewModel.deleteCorruptedAndRetry(state.model) },
+                                            onClick = {
+                                                viewModel.deleteCorruptedAndRetry(state.model)
+                                                currentTab = AppTab.HUB
+                                            },
                                             colors = ButtonDefaults.buttonColors(containerColor = AbbasBlue),
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
@@ -540,17 +579,9 @@ fun ChatScreen(viewModel: ChatViewModel) {
                         }
                     }
                 }
+                }
 
-                Text(
-                    text = APP_VERSION,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        color = Color.Gray.copy(alpha = 0.5f),
-                        fontSize = 8.sp
-                    ),
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(8.dp)
-                )
+                // App version is shown in the navigation drawer footer.
             }
         }
     }
@@ -559,100 +590,40 @@ fun ChatScreen(viewModel: ChatViewModel) {
 @Composable
 fun ModelDropdown(
     currentModel: ModelConfig?,
-    models: List<ModelConfig>,
-    onModelSelected: (ModelConfig) -> Unit,
-    isModelAvailable: (ModelConfig) -> Boolean
+    onSwitchModel: () -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
-
-    Box {
-        // ... (rest of the Row content)
-        Row(
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .clickable { expanded = true }
-                .padding(horizontal = 12.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    // The title acts as the model-initializing button: tapping it opens the
+    // load screen where a downloaded model can be picked and loaded into the engine.
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable { onSwitchModel() }
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                "Abbas",
+                style = TextStyle(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Abbas",
+                    currentModel?.name ?: "Select Model",
                     style = TextStyle(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = MaterialTheme.colorScheme.onBackground
+                        fontSize = 11.sp,
+                        color = Color.Gray
                     )
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        currentModel?.name ?: "Select Model",
-                        style = TextStyle(
-                            fontSize = 11.sp,
-                            color = Color.Gray
-                        )
-                    )
-                    Icon(
-                        Icons.Default.KeyboardArrowDown,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = Color.Gray
-                    )
-                }
-            }
-        }
-
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier.widthIn(min = 200.dp)
-        ) {
-            models.forEach { model ->
-                val available = isModelAvailable(model)
-                val isSelected = model.id == currentModel?.id
-                
-                DropdownMenuItem(
-                    text = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    model.name,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isSelected) AbbasBlue else MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    "${String.format("%.1f", model.estimatedRamBytes / (1024 * 1024 * 1024.0))} GB",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color.Gray
-                                )
-                            }
-                            if (!available) {
-                                Icon(
-                                    Icons.Outlined.FileDownload,
-                                    contentDescription = "Not Downloaded",
-                                    modifier = Modifier.size(18.dp),
-                                    tint = Color.Gray
-                                )
-                            } else if (isSelected) {
-                                Icon(
-                                    Icons.Default.Check,
-                                    contentDescription = "Selected",
-                                    modifier = Modifier.size(18.dp),
-                                    tint = AbbasBlue
-                                )
-                            }
-                        }
-                    },
-                    onClick = {
-                        expanded = false
-                        if (!isSelected) {
-                            onModelSelected(model)
-                        }
-                    }
+                Icon(
+                    Icons.Outlined.Memory,
+                    contentDescription = "Initialize model",
+                    modifier = Modifier.size(14.dp),
+                    tint = Color.Gray
                 )
             }
         }
@@ -661,13 +632,10 @@ fun ModelDropdown(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ModelSelectionScreen(
-    models: List<ModelConfig>, 
-    onModelSelected: (ModelConfig) -> Unit,
-    isModelAvailable: (ModelConfig) -> Boolean,
-    isModelDownloading: ((String) -> Boolean)? = null,
-    getDownloadState: ((String) -> ModelDownloadState?)? = null,
-    onDownloadModel: ((ModelConfig) -> Unit)? = null,
+fun ModelLoadScreen(
+    models: List<ModelConfig>,
+    onInitialize: (ModelConfig) -> Unit,
+    onOpenHub: () -> Unit,
     onCancel: (() -> Unit)? = null
 ) {
     var selectedModel by remember { mutableStateOf<ModelConfig?>(null) }
@@ -686,142 +654,99 @@ fun ModelSelectionScreen(
             modifier = Modifier.padding(32.dp).fillMaxWidth()
         ) {
             Icon(
-                Icons.Outlined.AutoAwesome,
+                Icons.Outlined.Memory,
                 contentDescription = null,
                 tint = AbbasBlue,
                 modifier = Modifier.size(64.dp)
             )
             Spacer(modifier = Modifier.height(24.dp))
             Text(
-                "Welcome to Abbas",
+                if (models.isEmpty()) "No models ready" else "Load a model",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                "Choose an LLM to get started",
+                if (models.isEmpty())
+                    "You haven't downloaded any model weights yet."
+                else
+                    "Pick a downloaded model to load into the engine",
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color.Gray
+                color = Color.Gray,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
             Spacer(modifier = Modifier.height(24.dp))
 
-            LazyColumn(
-                modifier = Modifier.weight(1f, fill = false).fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(models, key = { it.id }) { model ->
-                    val available = isModelAvailable(model)
-                    val downloading = isModelDownloading?.invoke(model.id) == true
-                    val dlState = getDownloadState?.invoke(model.id)
-                    val isSelected = model.id == selectedModel?.id
+            if (models.isEmpty()) {
+                Button(
+                    onClick = onOpenHub,
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AbbasBlue),
+                    shape = RoundedCornerShape(28.dp)
+                ) {
+                    Icon(Icons.Outlined.CloudDownload, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Open AI Hub to download", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f, fill = false).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(models, key = { it.id }) { model ->
+                        val isSelected = model.id == selectedModel?.id
 
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                if (available) {
-                                    selectedModel = model
-                                } else {
-                                    onDownloadModel?.invoke(model)
-                                }
-                            },
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isSelected)
-                                AbbasBlue.copy(alpha = 0.08f)
-                            else
-                                MaterialTheme.colorScheme.surface
-                        ),
-                        border = if (isSelected) BorderStroke(1.dp, AbbasBlue) else null,
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { selectedModel = model },
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isSelected)
+                                    AbbasBlue.copy(alpha = 0.08f)
+                                else
+                                    MaterialTheme.colorScheme.surface
+                            ),
+                            border = if (isSelected) BorderStroke(1.dp, AbbasBlue) else null,
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier.fillMaxWidth().padding(16.dp)
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(model.name, fontWeight = FontWeight.SemiBold)
                                     Text(
-                                        "${String.format("%.1f", model.estimatedRamBytes / (1024 * 1024 * 1024.0))} GB",
+                                        "~${String.format("%.1f", model.estimatedRamBytes / (1024 * 1024 * 1024.0))} GB RAM",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = Color.Gray
                                     )
                                 }
-                                when {
-                                    downloading && dlState != null -> {
-                                        // Show cancel button during download
-                                        IconButton(
-                                            onClick = { /* cancel handled below */ },
-                                            modifier = Modifier.size(32.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Close,
-                                                contentDescription = "Cancel download",
-                                                tint = Color.Gray.copy(alpha = 0.5f),
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                        }
-                                    }
-                                    available -> {
-                                        Icon(Icons.Default.CheckCircle,
-                                            contentDescription = "Downloaded",
-                                            tint = AbbasBlue,
-                                            modifier = Modifier.size(24.dp))
-                                    }
-                                    else -> {
-                                        IconButton(
-                                            onClick = {
-                                                android.util.Log.d("Abbas", "Download icon clicked for ${model.id}, callback=${onDownloadModel != null}")
-                                                onDownloadModel?.invoke(model)
-                                            },
-                                            modifier = Modifier.size(48.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Outlined.FileDownload,
-                                                contentDescription = "Download",
-                                                tint = AbbasBlue,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                            // Progress bar during download
-                            if (downloading && dlState != null) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                LinearProgressIndicator(
-                                    progress = dlState.progress.coerceIn(0f, 1f),
-                                    modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
-                                    color = AbbasBlue,
-                                    trackColor = AbbasBlue.copy(alpha = 0.1f)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    dlState.status,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color.Gray
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = "Downloaded",
+                                    tint = AbbasBlue,
+                                    modifier = Modifier.size(24.dp)
                                 )
                             }
                         }
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
-            Button(
-                onClick = { selectedModel?.let { onModelSelected(it) } },
-                enabled = selectedModel != null && isModelAvailable(selectedModel!!),
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = AbbasBlue),
-                shape = RoundedCornerShape(28.dp)
-            ) {
-                Text(
-                    if (selectedModel != null && !isModelAvailable(selectedModel!!)) "Download first..."
-                    else "Initialize Engine",
-                    fontSize = 16.sp, fontWeight = FontWeight.Bold
-                )
+                Button(
+                    onClick = { selectedModel?.let { onInitialize(it) } },
+                    enabled = selectedModel != null,
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AbbasBlue),
+                    shape = RoundedCornerShape(28.dp)
+                ) {
+                    Text(
+                        "Initialize Engine",
+                        fontSize = 16.sp, fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
     }

@@ -2,8 +2,69 @@ package ai.abbas.app.repository
 
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.net.URI
+import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.regex.Pattern
+
+/** How aggressively non-authoritative sources are filtered out of a result set. */
+enum class SourcePriority {
+    /** Authoritative sources first, others kept as filler. */
+    CREDIBLE_FIRST,
+    /** Only authoritative sources — falls back to the full pool if none exist. */
+    CREDIBLE_ONLY
+}
+
+/**
+ * Domains operated by governments, universities, international bodies, and
+ * established reference/news organisations — the sources the "search mode"
+ * summaries are allowed to lean on. Matched against the registrable-domain
+ * suffix of the result's host.
+ */
+private val CREDIBLE_DOMAIN_SUFFIXES = listOf(
+    ".gov", ".mil", ".edu", ".int", ".ac.uk", ".gov.uk", ".nhs.uk",
+    "who.int", "un.org", "unesco.org", "worldbank.org", "imf.org", "oecd.org",
+    "europa.eu", "nih.gov", "cdc.gov", "nasa.gov", "noaa.gov", "mayoclinic.org",
+    "nature.com", "science.org", "sciencedirect.com", "ieee.org", "acm.org",
+    "arxiv.org", "pubmed.ncbi.nlm.nih.gov", "jstor.org",
+    "wikipedia.org", "britannica.com",
+    "reuters.com", "apnews.com", "bbc.com", "bbc.co.uk", "npr.org",
+    "economist.com", "ft.com", "nytimes.com", "theguardian.com"
+)
+
+/**
+ * DuckDuckGo Lite returns redirects (`//duckduckgo.com/l/?uddg=<real-url>`), so the
+ * href must be unwrapped before the real host can be judged. Returns the input
+ * unchanged when it is already direct or cannot be parsed.
+ */
+internal fun ddgResolvedUrl(raw: String): String {
+    val normalized = if (raw.startsWith("//")) "https:$raw" else raw
+    return try {
+        val uri = URI(normalized)
+        if (uri.host?.contains("duckduckgo.com") != true) return normalized
+        val target = uri.query
+            ?.split("&")
+            ?.firstOrNull { it.startsWith("uddg=") }
+            ?.removePrefix("uddg=")
+            ?.let { URLDecoder.decode(it, "UTF-8") }
+        target?.takeIf { it.isNotBlank() } ?: normalized
+    } catch (_: Exception) {
+        raw
+    }
+}
+
+/** Lower-cased host of [url], or null when it cannot be parsed. */
+internal fun hostOf(url: String): String? = try {
+    URI(if (url.startsWith("//")) "https:$url" else url).host?.lowercase()
+} catch (_: Exception) {
+    null
+}
+
+/** True when [url]'s host belongs to a credible organisation. */
+internal fun isCredibleSource(url: String): Boolean {
+    val host = hostOf(ddgResolvedUrl(url)) ?: return false
+    return CREDIBLE_DOMAIN_SUFFIXES.any { host == it.trimStart('.') || host.endsWith(it) }
+}
 
 /**
  * Privacy-focused web search via DuckDuckGo Lite.
@@ -25,17 +86,40 @@ object WebSearchRepository {
     data class SearchResult(
         val title: String,
         val snippet: String,
-        val url: String
+        val url: String,
+        /** True when the source is a credible organisation (see [isCredibleSource]). */
+        val credible: Boolean = false,
+        /** Lower-cased host of the source, for citations. */
+        val source: String = ""
     )
 
     /**
-     * Search DuckDuckGo Lite for the given query and return a list of
-     * up to [maxResults] search results.
+     * Search DuckDuckGo Lite and return up to [maxResults] results.
+     *
+     * A larger pool is fetched and re-ranked by source credibility, so an
+     * authoritative source that DDG ranked low still surfaces.
      *
      * This runs synchronously; should be called from a coroutine.
      */
     @JvmStatic
-    fun search(query: String, maxResults: Int = 3): List<SearchResult> {
+    fun search(
+        query: String,
+        maxResults: Int = 3,
+        priority: SourcePriority = SourcePriority.CREDIBLE_FIRST
+    ): List<SearchResult> {
+        val pool = fetch(query, limit = maxOf(maxResults * 4, 12))
+            .map { it.copy(credible = isCredibleSource(it.url), source = hostOf(it.url).orEmpty()) }
+
+        val credible = pool.filter { it.credible }
+        val ranked = if (priority == SourcePriority.CREDIBLE_ONLY && credible.isNotEmpty()) {
+            credible
+        } else {
+            credible + pool.filterNot { it.credible }
+        }
+        return ranked.distinctBy { it.url }.take(maxResults)
+    }
+
+    private fun fetch(query: String, limit: Int): List<SearchResult> {
         val encoded = URLEncoder.encode(query, "UTF-8")
         val url = "https://lite.duckduckgo.com/lite/?q=$encoded"
         val request = Request.Builder()
@@ -49,7 +133,7 @@ object WebSearchRepository {
         return try {
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string() ?: return emptyList()
-                parseResultsV2(body, maxResults)
+                parseResultsV2(body, limit)
             }
         } catch (_: Exception) {
             emptyList()
@@ -70,7 +154,7 @@ object WebSearchRepository {
             val rawTitle = linkMatcher.group(2)?.trim() ?: continue
             val rawUrl = linkMatcher.group(1)?.trim() ?: ""
             val title = htmlDecode(rawTitle)
-            val url = htmlDecode(rawUrl)
+            val url = ddgResolvedUrl(htmlDecode(rawUrl))
             if (title.isNotBlank()) {
                 links.add(title to url)
             }

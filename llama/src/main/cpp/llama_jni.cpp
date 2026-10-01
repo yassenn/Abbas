@@ -7,6 +7,7 @@
 #include "logging.h"
 #include "chat.h"
 #include "common.h"
+#include "json.h"
 #include "llama.h"
 #include "sampling.h"
 
@@ -43,7 +44,28 @@ static bool           g_generating      = false;
 static llama_pos      g_current_pos     = 0;
 static llama_pos      g_stop_pos        = 0;
 
+// Reasoning delimiters declared by the loaded model's chat template, populated in
+// createContext(). Thinking models open the trace inside the generation prompt and
+// close it with a marker token; surfacing these lets the app route the trace to its
+// "Thinking" block instead of leaking it into the final answer.
+static bool                     g_supports_thinking = false;
+static std::string              g_think_start;
+static std::vector<std::string> g_think_ends;
+// Whether the next generation may emit a reasoning trace. When false the template's
+// opened reasoning block is closed immediately so the model answers directly.
+static bool                     g_enable_thinking = true;
+
 // ── Helpers ──────────────────────────────────────────────────────────────
+
+static std::string json_escape(const std::string &s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    for (char c : s) {
+        if (c == '"' || c == '\\') out.push_back('\\');
+        out.push_back(c);
+    }
+    return out;
+}
 
 static void reset_state() {
     g_chat_msgs.clear();
@@ -73,12 +95,23 @@ static int decode_tokens_batch(llama_context *ctx, llama_batch &batch,
     return 0;
 }
 
-static std::string chat_format_and_add(const std::string &role, const std::string &content) {
+// Format `content` for `role` and append it to the running chat history.
+// `add_ass` (the assistant generation prompt) must be true ONLY for the final
+// user turn — the turn we generate from. Passing it for every user turn makes
+// each mid-history user message open a spurious assistant turn, so the model
+// sees a malformed conversation and answers poorly.
+static std::string chat_format_and_add(const std::string &role, const std::string &content, bool add_ass) {
     common_chat_msg msg;
     msg.role = role;
     msg.content = content;
     std::string formatted = common_chat_format_single(
-        g_chat_templates.get(), g_chat_msgs, msg, role == "user", false);
+        g_chat_templates.get(), g_chat_msgs, msg, add_ass, false);
+    // Thinking disabled: the template already opened a reasoning block in the
+    // generation prompt, so close it straight away (empty trace) and the model
+    // answers directly — the "search engine" behaviour.
+    if (add_ass && !g_enable_thinking && g_supports_thinking && !g_think_ends.empty()) {
+        formatted += g_think_ends.front();
+    }
     g_chat_msgs.push_back(msg);
     return formatted;
 }
@@ -107,6 +140,10 @@ Java_ai_abbas_llama_LlamaJni_loadModel(JNIEnv *env, jobject, jstring jModelPath)
     // Free previous model if any
     if (g_sampler) { common_sampler_free(g_sampler); g_sampler = nullptr; }
     g_chat_templates.reset();
+    g_supports_thinking = false;
+    g_think_start.clear();
+    g_think_ends.clear();
+    g_enable_thinking = true;
     if (g_context) { llama_free(g_context); g_context = nullptr; }
     if (g_model)   { llama_model_free(g_model); g_model = nullptr; }
 
@@ -158,9 +195,31 @@ Java_ai_abbas_llama_LlamaJni_createContext(
     g_batch = llama_batch_init(n_batch, 0, 1);
     g_chat_templates = common_chat_templates_init(g_model, "");
 
+    // Ask the model's own chat template how it frames reasoning, so the app knows
+    // the exact opening/closing markers instead of guessing a tag family.
+    {
+        common_chat_templates_inputs tinputs;
+        common_chat_msg probe;
+        probe.role = "user";
+        probe.content = "hi";
+        tinputs.messages.push_back(probe);
+        tinputs.add_generation_prompt = true;
+        common_chat_params tp = common_chat_templates_apply(g_chat_templates.get(), tinputs);
+
+        g_supports_thinking = tp.supports_thinking;
+        g_think_start       = tp.thinking_start_tag;
+        g_think_ends        = tp.thinking_end_tags;
+
+        LOGi("Chat template reasoning: supports_thinking=%d start='%s' ends=%zu",
+             (int) g_supports_thinking, g_think_start.c_str(), g_think_ends.size());
+    }
+
     // Default sampler
     common_params_sampling sparams;
     sparams.temp = 0.7f;
+    sparams.top_p = 0.9f;
+    sparams.penalty_last_n = 64;
+    sparams.penalty_repeat = 1.1f;
     g_sampler = common_sampler_init(g_model, sparams);
 
     LOGi("Context created: n_ctx=%d, threads=%d, batch=%d", n_ctx, n_threads, n_batch);
@@ -178,6 +237,10 @@ Java_ai_abbas_llama_LlamaJni_setSamplerParams(
     common_params_sampling sparams;
     sparams.temp = (float)jTemp;
     sparams.top_p = (float)jTopP;
+    // Without a repetition penalty small models degenerate into loops, especially
+    // after a duplicated prompt turn.
+    sparams.penalty_last_n = 64;
+    sparams.penalty_repeat = 1.1f;
     if (jSeed >= 0) {
         sparams.seed = (uint32_t)jSeed;
     }
@@ -200,133 +263,88 @@ JNIEXPORT jint JNICALL
 Java_ai_abbas_llama_LlamaJni_submitMessages(
     JNIEnv *env, jobject,
     jstring jMessagesJson,
-    jint jMaxTokens) {
+    jint jMaxTokens,
+    jboolean jEnableThinking) {
 
     if (!g_context) { LOGe("No context"); return 1; }
 
+    g_enable_thinking = (jEnableThinking == JNI_TRUE);
+
     // Parse messages JSON: [{"role":"user","content":"hello"}, ...]
     const char *json_str = env->GetStringUTFChars(jMessagesJson, nullptr);
-    LOGd("submitMessages: %s", json_str);
-
-    int max_tokens = jMaxTokens > 0 ? jMaxTokens : 512;
-
-    // Simple JSON parser for our message format
-    // Expected: {"messages":[{"role":"user","content":"..."},{"role":"assistant","content":"..."}]}
-    // OR: [{"role":"user","content":"..."},...]
     std::string json(json_str);
     env->ReleaseStringUTFChars(jMessagesJson, json_str);
+
+    int max_tokens = jMaxTokens > 0 ? jMaxTokens : 512;
 
     // Clear KV cache and chat history for fresh submission
     reset_state();
     llama_memory_clear(llama_get_memory(g_context), false);
     g_current_pos = 0;
 
-    // Parse manually (simple approach - extract role/content pairs)
+    // Parse with the vendored JSON parser. The previous hand-rolled scanner
+    // located each object/array by searching for the first '}' / ']' character,
+    // so any message containing a brace or bracket (markdown links, citations,
+    // code) truncated the conversation and fed the model a corrupted prompt.
+    // Expected: {"messages":[{"role":..,"content":..},...]} OR a bare array.
     std::vector<std::pair<std::string, std::string>> msgs;
-    size_t pos = 0;
-
-    // Find "messages" array or bare array
-    size_t arr_start = json.find("\"messages\"");
-    if (arr_start != std::string::npos) {
-        arr_start = json.find('[', arr_start);
-    } else {
-        arr_start = json.find('[');
-    }
-    if (arr_start == std::string::npos) { LOGe("No messages array found"); return 2; }
-
-    size_t arr_end = json.find(']', arr_start);
-    if (arr_end == std::string::npos) arr_end = json.length();
-
-    std::string arr = json.substr(arr_start + 1, arr_end - arr_start - 1);
-
-    // Parse each object: {"role":"system","content":"..."}
-    size_t obj_start = 0;
-    while ((obj_start = arr.find('{', obj_start)) != std::string::npos) {
-        size_t obj_end = arr.find('}', obj_start);
-        if (obj_end == std::string::npos) break;
-        std::string obj = arr.substr(obj_start, obj_end - obj_start + 1);
-        obj_start = obj_end + 1;
-
-        // Extract role
-        std::string role, content;
-        size_t rp = obj.find("\"role\"");
-        if (rp != std::string::npos) {
-            rp = obj.find('"', rp + 7);
-            if (rp != std::string::npos) {
-                size_t re = obj.find('"', rp + 1);
-                if (re != std::string::npos) role = obj.substr(rp + 1, re - rp - 1);
+    try {
+        common_json root = common_json::parse(json);
+        const common_json * arr = nullptr;
+        if (root.is_object() && root.contains("messages")) {
+            arr = &root.at("messages");
+        } else if (root.is_array()) {
+            arr = &root;
+        }
+        if (arr == nullptr || !arr->is_array()) {
+            LOGe("No messages array found");
+            return 2;
+        }
+        for (size_t i = 0; i < arr->size(); i++) {
+            const common_json & m = arr->at(i);
+            std::string role    = m.value("role", "");
+            std::string content = m.value("content", "");
+            if (!role.empty() && !content.empty()) {
+                msgs.push_back({role, content});
             }
         }
-        // Extract content
-        size_t cp = obj.find("\"content\"");
-        if (cp != std::string::npos) {
-            cp = obj.find('"', cp + 10);
-            if (cp != std::string::npos) {
-                size_t ce = obj.find('"', cp + 1);
-                // Handle escaped quotes
-                while (ce != std::string::npos && obj[ce - 1] == '\\') {
-                    ce = obj.find('"', ce + 1);
-                }
-                if (ce != std::string::npos) content = obj.substr(cp + 1, ce - cp - 1);
-            }
-        }
-
-        if (!role.empty() && !content.empty()) {
-            msgs.push_back({role, content});
-        }
+    } catch (const std::exception & e) {
+        LOGe("Failed to parse messages JSON: %s", e.what());
+        return 2;
     }
 
     LOGi("Parsed %zu messages from JSON", msgs.size());
 
     // Process all messages to build chat history + KV cache
-    for (auto &[role, content] : msgs) {
-        // Unescape basic JSON escapes in content
-        for (size_t i = 0; i + 1 < content.size(); i++) {
-            if (content[i] == '\\') {
-                char next = content[i + 1];
-                if (next == 'n') { content.replace(i, 2, "\n"); }
-                else if (next == 't') { content.replace(i, 2, "\t"); }
-                else if (next == '"') { content.replace(i, 2, "\""); }
-                else if (next == '\\') { content.replace(i, 2, "\\"); }
-            }
-        }
+    const int n_msgs = (int)msgs.size();
+    for (int mi = 0; mi < n_msgs; mi++) {
+        const std::string & role    = msgs[mi].first;
+        const std::string & content = msgs[mi].second; // already unescaped by the JSON parser
 
-        std::string formatted = chat_format_and_add(role, content);
+        const bool is_last = (mi == n_msgs - 1);
+        // Only the final user turn opens an assistant turn to generate from.
+        const bool generate_from_here = is_last && role == "user";
 
-        bool add_assistant_prefix = (role == "assistant");
+        std::string formatted = chat_format_and_add(role, content, generate_from_here);
+
+        // parse_special MUST be true: the rendered prompt contains the model's own
+        // control tokens (e.g. <|im_start|>/<|im_end|>). With parse_special=false
+        // they were tokenized as literal text, so the model received a malformed,
+        // plain-text conversation and produced poor output.
         auto tokens = common_tokenize(g_context, formatted,
             g_chat_templates && common_chat_templates_was_explicit(g_chat_templates.get()),
-            add_assistant_prefix);
+            /*parse_special=*/true);
 
         if (g_current_pos + (int)tokens.size() >= llama_n_ctx(g_context) - OVERFLOW_HEADROOM) {
-            LOGw("Context overflow, stopping at %zu messages", g_chat_msgs.size());
+            LOGw("Context overflow, stopping at %d messages", mi);
             g_chat_msgs.pop_back();
             break;
         }
 
-        // Decode tokens (except last assistant message - that's what we generate from)
-        bool is_last = (&role == &msgs.back().first);
-        bool compute_logit = is_last && role == "user";
-
-        decode_tokens_batch(g_context, g_batch, tokens, g_current_pos, compute_logit);
+        // Decode this turn. The final (user) turn requests the last logit so the
+        // first nextToken() call samples from a populated output buffer.
+        decode_tokens_batch(g_context, g_batch, tokens, g_current_pos, generate_from_here);
         g_current_pos += (int)tokens.size();
-
-        // If last message is user, we want to start generating from here
-        if (compute_logit) {
-            // Add assistant prefix token if template needs it
-            common_chat_msg asst_msg;
-            asst_msg.role = "assistant";
-            asst_msg.content = "";
-            std::string asst_prefix = common_chat_format_single(
-                g_chat_templates.get(), g_chat_msgs, asst_msg, false, false);
-            g_chat_msgs.push_back(asst_msg);
-
-            if (!asst_prefix.empty()) {
-                auto prefix_tokens = common_tokenize(g_context, asst_prefix, false, false);
-                decode_tokens_batch(g_context, g_batch, prefix_tokens, g_current_pos, false);
-                g_current_pos += (int)prefix_tokens.size();
-            }
-        }
     }
 
     g_stop_pos = g_current_pos + max_tokens;
@@ -337,7 +355,7 @@ Java_ai_abbas_llama_LlamaJni_submitMessages(
 }
 
 extern "C"
-JNIEXPORT jstring JNICALL
+JNIEXPORT jbyteArray JNICALL
 Java_ai_abbas_llama_LlamaJni_nextToken(JNIEnv *env, jobject) {
     if (!g_context || !g_generating) return nullptr;
     if (g_stop_generation || g_current_pos >= g_stop_pos) {
@@ -358,8 +376,15 @@ Java_ai_abbas_llama_LlamaJni_nextToken(JNIEnv *env, jobject) {
         return nullptr;
     }
 
-    // Decode token
-    std::string piece = common_token_to_piece(g_context, id);
+    // special=false keeps ordinary template/control tokens out of the visible
+    // answer. Reasoning delimiters (e.g. </think>) are special tokens that render
+    // to nothing this way, so re-render them — the app needs to see the marker to
+    // split the reasoning trace from the final answer. Normal text is identical
+    // under either flag, so only special tokens are affected.
+    std::string piece = common_token_to_piece(g_context, id, /*special=*/false);
+    if (piece.empty()) {
+        piece = common_token_to_piece(g_context, id, /*special=*/true);
+    }
 
     // Decode the token
     common_batch_clear(g_batch);
@@ -371,7 +396,17 @@ Java_ai_abbas_llama_LlamaJni_nextToken(JNIEnv *env, jobject) {
     }
     g_current_pos++;
 
-    return env->NewStringUTF(piece.c_str());
+    // Return the raw UTF-8 bytes. A token piece can end mid-character (the
+    // tokenizer splits multi-byte characters across tokens), so decoding each
+    // piece on the Kotlin side produced mojibake. Kotlin reassembles the byte
+    // stream and emits only complete characters. An empty (zero-length) array
+    // means "token produced no output"; nullptr means generation is finished.
+    jbyteArray out = env->NewByteArray((jsize) piece.size());
+    if (out != nullptr && !piece.empty()) {
+        env->SetByteArrayRegion(out, 0, (jsize) piece.size(),
+                                reinterpret_cast<const jbyte *>(piece.data()));
+    }
+    return out;
 }
 
 extern "C"
@@ -383,11 +418,31 @@ Java_ai_abbas_llama_LlamaJni_stopGeneration(JNIEnv *, jobject) {
 }
 
 extern "C"
+JNIEXPORT jstring JNICALL
+Java_ai_abbas_llama_LlamaJni_getThinkingTags(JNIEnv *env, jobject) {
+    // {"thinking":bool,"start":"...","ends":["..."]} — used by Kotlin to route the
+    // reasoning trace to the thinking block.
+    std::string json = "{\"thinking\":";
+    json += g_supports_thinking ? "true" : "false";
+    json += ",\"start\":\"" + json_escape(g_think_start) + "\",\"ends\":[";
+    for (size_t i = 0; i < g_think_ends.size(); i++) {
+        if (i > 0) json += ",";
+        json += "\"" + json_escape(g_think_ends[i]) + "\"";
+    }
+    json += "]}";
+    return env->NewStringUTF(json.c_str());
+}
+
+extern "C"
 JNIEXPORT void JNICALL
 Java_ai_abbas_llama_LlamaJni_unload(JNIEnv *, jobject) {
     reset_state();
     if (g_sampler) { common_sampler_free(g_sampler); g_sampler = nullptr; }
     g_chat_templates.reset();
+    g_supports_thinking = false;
+    g_think_start.clear();
+    g_think_ends.clear();
+    g_enable_thinking = true;
     if (g_context) { llama_free(g_context); g_context = nullptr; }
     if (g_model)   { llama_model_free(g_model); g_model = nullptr; }
     LOGi("Model unloaded");
@@ -399,6 +454,10 @@ Java_ai_abbas_llama_LlamaJni_shutdown(JNIEnv *, jobject) {
     reset_state();
     if (g_sampler) { common_sampler_free(g_sampler); g_sampler = nullptr; }
     g_chat_templates.reset();
+    g_supports_thinking = false;
+    g_think_start.clear();
+    g_think_ends.clear();
+    g_enable_thinking = true;
     if (g_context) { llama_free(g_context); g_context = nullptr; }
     if (g_model)   { llama_model_free(g_model); g_model = nullptr; }
     llama_backend_free();

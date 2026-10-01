@@ -20,11 +20,19 @@ data class ModelDownloadState(
     val status: String
 )
 
+/** Weight folders on disk that no catalogue model claims (leftovers from an older list). */
+data class OrphanedWeights(val ids: List<String>, val bytes: Long) {
+    val count: Int get() = ids.size
+    val megabytes: Long get() = bytes / 1_048_576
+}
+
 sealed interface ChatUiState {
     object Initializing : ChatUiState
     data class SelectingModel(val models: List<ModelConfig>) : ChatUiState
-    data class DownloadingModels(
-        val active: Map<String, ModelDownloadState>
+    data class LoadingModel(
+        val model: ModelConfig,
+        val progress: Float,
+        val status: String
     ) : ChatUiState
     object Ready : ChatUiState
     object Donating : ChatUiState

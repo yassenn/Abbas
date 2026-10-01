@@ -27,18 +27,26 @@ object LlamaJni {
      * Submit a conversation history as JSON and prepare for generation.
      *
      * JSON format: {"messages":[{"role":"user","content":"..."},{"role":"assistant","content":"..."},...]}
+     * [enableThinking] false suppresses the model's reasoning trace (search mode).
      * Returns 0 on success.
      */
-    external fun submitMessages(messagesJson: String, maxTokens: Int): Int
+    external fun submitMessages(messagesJson: String, maxTokens: Int, enableThinking: Boolean): Int
 
     /**
-     * Get the next generated token as a UTF-8 string.
-     * Returns null when generation is complete or stopped.
+     * Get the next generated token as raw UTF-8 bytes.
+     * Returns null when generation is complete or stopped; an empty array
+     * means the token produced no visible output (e.g. a control token).
      */
-    external fun nextToken(): String?
+    external fun nextToken(): ByteArray?
 
     /** Request generation to stop at the next token boundary. */
     external fun stopGeneration()
+
+    /**
+     * Reasoning delimiters declared by the loaded model's chat template, as JSON:
+     * `{"thinking":bool,"start":"...","ends":["..."]}`.
+     */
+    external fun getThinkingTags(): String
 
     /** Unload model and free context resources. */
     external fun unload()

@@ -123,6 +123,10 @@ class ChatViewModel(
         return llmEngineManager.isModelDownloaded(model) || llmEngineManager.isModelInAssets(model)
     }
 
+    fun isModelCapable(model: ModelConfig): Boolean {
+        return llmEngineManager.isDeviceCapable(model)
+    }
+
     private val _dbMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
     private val _generatingMessage = MutableStateFlow<ChatMessage?>(null)
 
@@ -149,7 +153,48 @@ class ChatViewModel(
 
     // Multi-download state
     private val _downloadStates = MutableStateFlow<Map<String, ModelDownloadState>>(emptyMap())
+    val downloadStates: StateFlow<Map<String, ModelDownloadState>> = _downloadStates.asStateFlow()
     private val downloadJobs = mutableMapOf<String, Job>()
+
+    // Reactive set of model IDs whose weights are present on disk.
+    // Backs the AI Hub download badges and the Chat tab's initialize picker.
+    private val _downloadedModelIds = MutableStateFlow<Set<String>>(emptySet())
+    val downloadedModelIds: StateFlow<Set<String>> = _downloadedModelIds.asStateFlow()
+
+    /** Re-scan the filesystem for downloaded weights. Call after any download/delete. */
+    fun refreshDownloadedModels() {
+        _downloadedModelIds.value = allModels.value
+            .filter { llmEngineManager.isModelDownloaded(it) || llmEngineManager.isModelInAssets(it) }
+            .map { it.id }
+            .toSet()
+    }
+
+    // Orphaned weights: folders left behind by models dropped from the catalogue.
+    private val _orphanedWeights = MutableStateFlow(OrphanedWeights(emptyList(), 0L))
+    val orphanedWeights: StateFlow<OrphanedWeights> = _orphanedWeights.asStateFlow()
+
+    /** Re-scan for weight folders that no catalogue model claims. */
+    fun refreshOrphanedWeights() {
+        viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
+            val known = allModels.value.map { it.id }.toSet()
+            val dirs = llmEngineManager.findOrphanedModelDirs(known)
+            val bytes = dirs.sumOf { dir ->
+                dir.walkBottomUp().filter { it.isFile }.sumOf { it.length() }
+            }
+            _orphanedWeights.value = OrphanedWeights(dirs.map { it.name }, bytes)
+        }
+    }
+
+    /** Delete unused weight folders and report how much space was reclaimed. */
+    fun clearOrphanedWeights() {
+        viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
+            val known = allModels.value.map { it.id }.toSet()
+            val freedMb = llmEngineManager.deleteOrphanedModelDirs(known) / 1_048_576
+            refreshOrphanedWeights()
+            refreshDownloadedModels()
+            _errors.emit("Freed $freedMb MB of unused model files")
+        }
+    }
 
     private val _customModels = MutableStateFlow<List<ModelConfig>>(emptyList())
 
@@ -177,6 +222,10 @@ class ChatViewModel(
         _customModels.value = com.google.gson.Gson().fromJson(customJson, type)
 
         loadSessions()
+        refreshDownloadedModels()
+        refreshOrphanedWeights()
+        observeDownloadService()
+
         val compatibleModels = allModels.value.filter { llmEngineManager.isDeviceCapable(it) }
         val lastModelId = prefs.getString("last_model_id", null)
         android.util.Log.d("Abbas", "Init: allModels=${allModels.value.map{it.id}}, compatibleModels=${compatibleModels.map{it.id}}, lastModelId=$lastModelId")
@@ -205,6 +254,8 @@ class ChatViewModel(
         _customModels.value = newList
         val json = com.google.gson.Gson().toJson(newList)
         prefs.edit().putString(customModelsKey, json).apply()
+        refreshDownloadedModels()
+        refreshOrphanedWeights()
     }
 
     private fun loadSessions() {
@@ -217,13 +268,49 @@ class ChatViewModel(
         }
     }
 
+    /** Called from the model dropdown in the Chat tab. */
     fun onModelSelected(model: ModelConfig) {
         if (isModelAvailable(model)) {
             synchronized(llmHistory) { llmHistory.clear() }
             initializeEngine(model)
         } else {
-            // Model not available — queue it for download
-            downloadModel(model)
+            // Weights are not on device. Downloading is a separate step handled in
+            // the AI Hub tab — never triggered implicitly from chat.
+            viewModelScope.launch {
+                _errors.emit("${model.name} is not downloaded. Download it from the AI Hub tab first.")
+            }
+        }
+    }
+
+    /**
+     * Load a model into the engine. Weights must already be on disk — this
+     * never downloads. Download is a separate step in the AI Hub tab.
+     */
+    fun initModel(model: ModelConfig) {
+        if (!isModelAvailable(model)) {
+            viewModelScope.launch {
+                _errors.emit("${model.name} is not downloaded yet. Download it from the AI Hub tab first.")
+            }
+            val compatibleModels = allModels.value.filter { llmEngineManager.isDeviceCapable(it) }
+            _uiState.value = ChatUiState.SelectingModel(compatibleModels)
+            return
+        }
+        synchronized(llmHistory) { llmHistory.clear() }
+        initializeEngine(model)
+    }
+
+    /**
+     * Delete downloaded weights for a model. Used by the AI Hub tab. The model
+     * currently loaded into the engine cannot be deleted.
+     */
+    fun deleteModel(model: ModelConfig) {
+        if (llmEngineManager.currentModel.value?.id == model.id) {
+            viewModelScope.launch { _errors.emit("${model.name} is currently in use. Switch to another model before deleting it.") }
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
+            llmEngineManager.deleteModelFiles(model)
+            _downloadedModelIds.update { it - model.id }
         }
     }
 
@@ -372,22 +459,13 @@ class ChatViewModel(
     private fun initializeEngine(model: ModelConfig) {
         initJob?.cancel()
         initJob = viewModelScope.launch(exceptionHandler) {
-            val isDownloaded = llmEngineManager.isModelDownloaded(model)
             val isInAssets = llmEngineManager.isModelInAssets(model)
+            val initialStatus = if (isInAssets) "Extracting model..." else "Loading model into memory..."
 
-            val initialStatus = when {
-                isDownloaded -> "Loading model..."
-                isInAssets -> "Extracting model..."
-                else -> "Downloading model..."
-            }
-
-            val initState = mapOf(model.id to ModelDownloadState(model, 0f, initialStatus))
-            _uiState.value = ChatUiState.DownloadingModels(initState)
+            _uiState.value = ChatUiState.LoadingModel(model, 0f, initialStatus)
 
             val result = llmEngineManager.initializeEngine(model, _hfToken.value) { progress, status ->
-                _uiState.value = ChatUiState.DownloadingModels(
-                    mapOf(model.id to ModelDownloadState(model, progress, status))
-                )
+                _uiState.value = ChatUiState.LoadingModel(model, progress, status)
             }
             if (result.isSuccess) {
                 prefs.edit().putString("last_model_id", model.id).apply()
@@ -413,11 +491,19 @@ class ChatViewModel(
         }
     }
 
+    /**
+     * Delete a corrupted model's files and re-queue the download. Initialization
+     * is intentionally skipped here — the user re-loads from the Chat tab once
+     * the AI Hub reports the download complete.
+     */
     fun deleteCorruptedAndRetry(model: ModelConfig) {
         viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
             llmEngineManager.deleteModelFiles(model)
+            _downloadedModelIds.update { it - model.id }
             viewModelScope.launch(Dispatchers.Main) {
-                initializeEngine(model)
+                val compatibleModels = allModels.value.filter { llmEngineManager.isDeviceCapable(it) }
+                _uiState.value = ChatUiState.SelectingModel(compatibleModels)
+                downloadModel(model)
             }
         }
     }
@@ -425,6 +511,7 @@ class ChatViewModel(
     fun deleteModelWeights(model: ModelConfig) {
         viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
             llmEngineManager.deleteModelFiles(model)
+            _downloadedModelIds.update { it - model.id }
             viewModelScope.launch(Dispatchers.Main) {
                 val compatibleModels = allModels.value.filter { llmEngineManager.isDeviceCapable(it) }
                 _uiState.value = ChatUiState.SelectingModel(compatibleModels)
@@ -433,8 +520,9 @@ class ChatViewModel(
     }
 
     /**
-     * Start downloading a model without initializing the engine.
-     * Multiple models can be downloaded simultaneously.
+     * Start downloading a model's weights without initializing the engine.
+     * Multiple models can be downloaded simultaneously. Downloading is a
+     * separate concern from loading — see [initModel].
      */
     fun downloadModel(model: ModelConfig) {
         android.util.Log.d("Abbas", "downloadModel called for ${model.id}")
@@ -452,26 +540,31 @@ class ChatViewModel(
 
         _downloadStates.update { it + (model.id to ModelDownloadState(model, 0f, "Starting...")) }
 
-        // Delegate to foreground service for background persistence
+        // Delegate to foreground service for background persistence.
+        // NOTE: this never initializes the engine.
         DownloadService.startDownload(context, model, _hfToken.value)
+    }
 
-        // Subscribe to service progress updates
+    /**
+     * Single long-lived subscriber to [DownloadService.progressFlow]. Updates the
+     * download map and refreshes the downloaded-weights set on completion so the
+     * AI Hub badges and the Chat tab's initialize picker recompose.
+     */
+    private fun observeDownloadService() {
         viewModelScope.launch {
             DownloadService.progressFlow.collect { update ->
-                val ds = _downloadStates.value[update.modelId] ?: return@collect
+                val ds = _downloadStates.value[update.modelId]
                 if (update.done) {
                     if (update.error != null) {
-                        _downloadStates.update { it - update.modelId }
                         _errors.emit("${update.modelName}: ${update.error}")
-                    } else {
-                        _downloadStates.update { it - update.modelId }
                     }
+                    _downloadStates.update { it - update.modelId }
                     downloadJobs.remove(update.modelId)
+                    refreshDownloadedModels()
                 } else {
+                    val model = ds?.model ?: return@collect
                     _downloadStates.update {
-                        it + (update.modelId to ModelDownloadState(
-                            ds.model, update.progress, update.status
-                        ))
+                        it + (update.modelId to ModelDownloadState(model, update.progress, update.status))
                     }
                 }
             }
@@ -697,83 +790,56 @@ class ChatViewModel(
             var tokenCount = 0
 
             try {
-                // Build prompt with context if available
-                val prompt = if (context.isNotEmpty()) {
-                    "Context:\n$context\n\nQuestion: $query\nAnswer:"
-                } else {
-                    query
-                }
+                // Retrieved context is passed as a system message instead of being
+                // glued into the user turn ("Context:...\nQuestion:...\nAnswer:"). The
+                // old wrapper bled scaffolding into replies and confused small models.
+                val systemContext = context.trim()
 
-                // Capture the current history to avoid concurrent modification issues
-                val historySnapshot = synchronized(llmHistory) { llmHistory.toList() }
+                // Capture the current history to avoid concurrent modification issues.
+                // The current turn's RAW user message may already have been mirrored into
+                // llmHistory by the DB collector. Drop it: generateResponse() appends the
+                // user query as the current user turn, so keeping both sends two
+                // consecutive user messages and the model degenerates into repetition.
+                val historySnapshot = synchronized(llmHistory) {
+                    llmHistory.toList().let { h ->
+                        if (h.isNotEmpty() && h.last().role == "user") h.dropLast(1) else h
+                    }
+                }
 
                 var fullContent = ""
                 var lastUiUpdateTime = 0L
 
-                llmEngineManager.generateResponse(prompt, historySnapshot, _generationSettings.value).collect { chunk ->
+                llmEngineManager.generateResponse(query, historySnapshot, _generationSettings.value, systemContext).collect { chunk ->
                     fullContent += chunk
                     tokenCount += 1
 
                     val currentTime = System.currentTimeMillis()
                     // Throttle UI updates to every 100ms to prevent UI thread saturation
                     if (currentTime - lastUiUpdateTime > 100) {
-                        val hasThoughtStart = fullContent.contains("<thought>")
-                        val hasThoughtEnd = fullContent.contains("</thought>")
-
-                        val currentThought: String?
-                        val currentText: String
-
-                        if (hasThoughtStart) {
-                            if (hasThoughtEnd) {
-                                currentThought = fullContent.substringAfter("<thought>").substringBefore("</thought>")
-                                currentText = fullContent.substringAfter("</thought>").trimStart()
-                                if (thoughtEndTimeMs == null) thoughtEndTimeMs = System.currentTimeMillis()
-                            } else {
-                                currentThought = fullContent.substringAfter("<thought>")
-                                currentText = ""
-                            }
-                        } else {
-                            currentThought = null
-                            currentText = fullContent
-                        }
+                        val split = splitThinking(fullContent)
+                        if (thoughtEndTimeMs == null && split.closed) thoughtEndTimeMs = currentTime
 
                         _generatingMessage.update { message ->
                             message?.copy(
-                                text = currentText,
-                                thought = currentThought
+                                text = split.text,
+                                thought = split.thought
                             )
                         }
                         lastUiUpdateTime = currentTime
                     }
                 }
 
-                // Final update to ensure all tokens are rendered
-                val finalHasThoughtStart = fullContent.contains("<thought>")
-                val finalHasThoughtEnd = fullContent.contains("</thought>")
-                val finalThought = if (finalHasThoughtStart) {
-                    if (finalHasThoughtEnd) {
-                        fullContent.substringAfter("<thought>").substringBefore("</thought>")
-                    } else {
-                        fullContent.substringAfter("<thought>")
-                    }
-                } else null
-
-                val finalText = if (finalHasThoughtEnd) {
-                    fullContent.substringAfter("</thought>").trimStart()
-                } else if (finalHasThoughtStart) {
-                    ""
-                } else {
-                    fullContent
-                }
-
-                _generatingMessage.update { it?.copy(text = finalText, thought = finalThought) }
+                // Final update to ensure all tokens are rendered and the trace/answer
+                // split reflects the complete output.
+                val finalSplit = splitThinking(fullContent)
+                _generatingMessage.update { it?.copy(text = finalSplit.text, thought = finalSplit.thought) }
 
                 val endTimeMs = System.currentTimeMillis()
                 val totalTimeMs = endTimeMs - startTimeMs
 
                 val finalThoughtTimeMs = when {
                     thoughtEndTimeMs != null -> thoughtEndTimeMs!! - startTimeMs
-                    fullContent.contains("</thought>") -> totalTimeMs
+                    finalSplit.thought != null -> totalTimeMs
                     else -> null
                 }
 
@@ -807,7 +873,7 @@ class ChatViewModel(
                     }
 
                     synchronized(llmHistory) {
-                        llmHistory.add(LlamaEngineManager.ChatMessage(role = "user", content = prompt))
+                        llmHistory.add(LlamaEngineManager.ChatMessage(role = "user", content = query))
                         llmHistory.add(LlamaEngineManager.ChatMessage(role = "assistant", content = updated.text))
                     }
                 }
@@ -816,6 +882,18 @@ class ChatViewModel(
                 _generatingMessage.update { it?.copy(text = errorMsg, isGenerating = false) }
             }
         }
+    }
+
+    // ── Thinking / answer splitting ──────────────────────────────────
+
+    /**
+     * Split streamed output using the loaded model's chat-template markers so the
+     * reasoning trace lands in the "Thought" block and only the final answer is
+     * shown in the message body. See [ai.abbas.app.viewmodel.splitThinking].
+     */
+    private fun splitThinking(full: String): ThinkingSplit {
+        val tags = llmEngineManager.thinkingTags
+        return ai.abbas.app.viewmodel.splitThinking(full, tags.start, tags.ends, tags.supported)
     }
 
     fun newChat() {
@@ -837,6 +915,8 @@ class ChatViewModel(
             }
         }
         newChat()
+        refreshDownloadedModels()
+        refreshOrphanedWeights()
         val compatibleModels = allModels.value.filter { llmEngineManager.isDeviceCapable(it) }
         _uiState.value = ChatUiState.SelectingModel(compatibleModels)
     }

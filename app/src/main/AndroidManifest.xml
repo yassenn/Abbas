@@ -15,6 +15,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:hardwareAccelerated="false"
+        android:extractNativeLibs="true"
         android:theme="@style/Theme.Abbas">
         <uses-native-library android:name="libOpenCL.so" android:required="false" />
         <uses-native-library android:name="libOpenCL-pixel.so" android:required="false" />

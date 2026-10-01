@@ -22,6 +22,20 @@ import java.io.IOException
 class CorruptedModelException(message: String) : Exception(message)
 
 /**
+ * Names of weight folders that no catalogue model claims. Pure (no filesystem/Android),
+ * so it can be unit tested — [LlamaEngineManager] just feeds it the disk listing.
+ *
+ * @param existingDirNames directory names present under the model root
+ * @param knownIds ids of every model in the current catalogue (predefined + custom)
+ * @param activeId id of the model loaded in the engine, if any — never reported as orphaned
+ */
+internal fun orphanedModelDirNames(
+    existingDirNames: Collection<String>,
+    knownIds: Set<String>,
+    activeId: String?
+): List<String> = existingDirNames.filter { it !in knownIds && it != activeId }
+
+/**
  * Manages llama.cpp model lifecycle: download, verify, load, generate.
  *
  * Replaces the old MLC-based MlcEngineManager. Uses the LlamaEngine
@@ -36,6 +50,15 @@ class LlamaEngineManager(private val context: Context) {
 
     private val _currentModel = MutableStateFlow<ModelConfig?>(null)
     val currentModel: StateFlow<ModelConfig?> = _currentModel.asStateFlow()
+
+    /**
+     * Reasoning delimiters of the loaded model (from its chat template). Used to
+     * route the model's thinking trace to the chat's "Thought" block. Updated on
+     * every successful engine load.
+     */
+    @Volatile
+    var thinkingTags: LlamaEngine.ThinkingTags = LlamaEngine.ThinkingTags.NONE
+        private set
 
     // Dedicated single-thread dispatcher for llama.cpp inference.
     // CPU-priority thread prevents native code from saturating all cores.
@@ -160,23 +183,26 @@ class LlamaEngineManager(private val context: Context) {
         onProgress: suspend (Float, String) -> Unit
     ): kotlin.Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            _currentModel.value = model
             val outDir = File(context.getExternalFilesDir(null), "model/${model.id}")
             if (!outDir.exists()) outDir.mkdirs()
 
             val ggufFile = File(outDir, model.ggufFile)
 
-            // Download if needed
+            // LOAD-ONLY: weights must already be present on disk. Downloading is a
+            // separate action performed from the AI Hub tab, so initialization never
+            // touches the network. The only exception is extracting a model that
+            // ships inside the APK assets (local I/O, not a download).
             if (!ggufFile.exists() || ggufFile.length() < 100 * 1024 * 1024) {
                 if (isModelInAssets(model)) {
                     copyModelFromAssets(model.id, model.ggufFile, outDir) { progress ->
                         onProgress(progress, "Extracting model from assets...")
                     }
                 } else {
-                    val downloadResult = downloadModelDirectly(model, token, onProgress)
-                    if (downloadResult.isFailure) {
-                        throw downloadResult.exceptionOrNull() ?: IOException("Download failed")
-                    }
+                    return@withContext kotlin.Result.failure(
+                        CorruptedModelException(
+                            "Weights for ${model.name} are not downloaded. Open the AI Hub tab to download them first."
+                        )
+                    )
                 }
             }
 
@@ -202,6 +228,13 @@ class LlamaEngineManager(private val context: Context) {
                     nBatch = 512
                 )
                 engineReady = true
+                _currentModel.value = model
+                thinkingTags = llamaEngine?.thinkingTags() ?: LlamaEngine.ThinkingTags.NONE
+                android.util.Log.i(
+                    "Llama",
+                    "Thinking tags: supported=${thinkingTags.supported} " +
+                        "start='${thinkingTags.start}' ends=${thinkingTags.ends}"
+                )
             } catch (t: Throwable) {
                 android.util.Log.e("Llama", "Native load failed", t)
                 llamaEngine = null
@@ -261,15 +294,19 @@ class LlamaEngineManager(private val context: Context) {
     /**
      * Generate a response using llama.cpp.
      *
-     * @param prompt The user's prompt (with context prepended if any)
+     * @param prompt The user's prompt (the raw user turn)
      * @param messageHistory Previous messages in the conversation
      * @param settings Generation parameters (temperature, top_p, etc.)
+     * @param systemPrompt Optional system context (date, search results, local
+     *        knowledge). Sent as a system turn so it is never echoed back as
+     *        part of the user's question.
      * @return Flow of token strings
      */
     fun generateResponse(
         prompt: String,
         messageHistory: List<ChatMessage>,
-        settings: GenerationSettings = GenerationSettings()
+        settings: GenerationSettings = GenerationSettings(),
+        systemPrompt: String = ""
     ): Flow<String> = flow {
         val engine = llamaEngine
             ?: throw IllegalStateException("Engine not initialized. Please select a model first.")
@@ -281,8 +318,12 @@ class LlamaEngineManager(private val context: Context) {
             messageHistory
         }
 
-        // Build the message list: history + new user prompt
-        val messages = cappedHistory.map { it.role to it.content }.toMutableList()
+        // Build the message list: optional system turn, history, then the new user turn.
+        val messages = ArrayList<Pair<String, String>>(cappedHistory.size + 2)
+        if (systemPrompt.isNotBlank()) {
+            messages.add("system" to systemPrompt)
+        }
+        cappedHistory.forEach { messages.add(it.role to it.content) }
         messages.add("user" to prompt)
 
         // Configure sampler
@@ -315,10 +356,37 @@ class LlamaEngineManager(private val context: Context) {
         }
     }
 
+    // ── Orphaned weights ───────────────────────────────────────────
+
+    /**
+     * Weight folders left behind by a model no longer in the catalogue. The folder of
+     * the model currently loaded into the engine is always preserved.
+     */
+    fun findOrphanedModelDirs(knownIds: Set<String>): List<File> {
+        val root = File(context.getExternalFilesDir(null), "model")
+        val dirs = root.listFiles()?.filter { it.isDirectory } ?: return emptyList()
+        val orphans = orphanedModelDirNames(dirs.map { it.name }, knownIds, _currentModel.value?.id)
+        return dirs.filter { it.name in orphans }
+    }
+
+    /** Delete every folder from [findOrphanedModelDirs], returning the bytes reclaimed. */
+    fun deleteOrphanedModelDirs(knownIds: Set<String>): Long {
+        var freed = 0L
+        findOrphanedModelDirs(knownIds).forEach { dir ->
+            freed += dir.totalBytes()
+            dir.deleteRecursively()
+        }
+        return freed
+    }
+
+    private fun File.totalBytes(): Long =
+        walkBottomUp().filter { it.isFile }.sumOf { it.length() }
+
     fun clearModelCache() {
         llamaEngine?.unload()
         llamaEngine = null
         engineReady = false
+        thinkingTags = LlamaEngine.ThinkingTags.NONE
         val modelId = _currentModel.value?.id ?: "unknown"
         val outDir = File(context.getExternalFilesDir(null), "model/$modelId")
         if (outDir.exists()) {
@@ -330,5 +398,6 @@ class LlamaEngineManager(private val context: Context) {
         llamaEngine?.shutdown()
         llamaEngine = null
         engineReady = false
+        thinkingTags = LlamaEngine.ThinkingTags.NONE
     }
 }

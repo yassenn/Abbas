@@ -13,8 +13,8 @@ android {
         applicationId = "ai.abbas.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 153
-        versionName = "1.5.0-cpu"
+        versionCode = 171
+        versionName = "1.6.10-cpu"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
