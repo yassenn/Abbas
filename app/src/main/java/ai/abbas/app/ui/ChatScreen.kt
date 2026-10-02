@@ -60,11 +60,13 @@ fun ChatScreen(viewModel: ChatViewModel) {
     val currentSessionId by viewModel.currentSessionId.collectAsState()
     val currentModel by viewModel.currentModel.collectAsState()
     val isWebSearchEnabled by viewModel.isWebSearchEnabled.collectAsState()
+    val generationSettings by viewModel.generationSettings.collectAsState()
     val downloadStates by viewModel.downloadStates.collectAsState()
     val downloadedModelIds by viewModel.downloadedModelIds.collectAsState()
 
     var currentTab by rememberSaveable { mutableStateOf(AppTab.CHAT) }
     var showAddCustomModel by remember { mutableStateOf(false) }
+    var showClearChats by remember { mutableStateOf(false) }
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val snackbarHostState = remember { SnackbarHostState() }
@@ -92,6 +94,30 @@ fun ChatScreen(viewModel: ChatViewModel) {
             onAdd = { model ->
                 viewModel.addCustomModel(model)
                 showAddCustomModel = false
+            }
+        )
+    }
+
+    if (showClearChats) {
+        AlertDialog(
+            onDismissRequest = { showClearChats = false },
+            title = { Text("Clear all chats?") },
+            text = {
+                Text(
+                    "All chat sessions and their messages will be permanently deleted. " +
+                        "This cannot be undone. Downloaded models are not affected."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.clearAllChats()
+                        showClearChats = false
+                    }
+                ) { Text("Clear", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearChats = false }) { Text("Cancel") }
             }
         )
     }
@@ -240,9 +266,9 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 Divider(modifier = Modifier.padding(vertical = 8.dp), color = Color.Gray.copy(alpha = 0.1f))
                 
                 DropdownMenuItem(
-                    text = { Text("Clear All & Cache") },
+                    text = { Text("Clear All Chats") },
                     onClick = {
-                        viewModel.clearModelCache()
+                        showClearChats = true
                         scope.launch { drawerState.close() }
                     },
                     leadingIcon = { Icon(Icons.Outlined.DeleteSweep, contentDescription = null) },
@@ -574,7 +600,9 @@ fun ChatScreen(viewModel: ChatViewModel) {
                                 isGenerating = messages.lastOrNull()?.isGenerating == true,
                                 onAttach = { filePickerLauncher.launch(arrayOf("text/plain")) },
                                 isWebSearchEnabled = isWebSearchEnabled,
-                                onToggleWebSearch = { viewModel.toggleWebSearch() }
+                                onToggleWebSearch = { viewModel.toggleWebSearch() },
+                                isThinkingEnabled = generationSettings.enableThinking,
+                                onToggleThinking = { viewModel.toggleThinking() }
                             )
                         }
                     }
@@ -1033,7 +1061,9 @@ fun MessageInput(
     isGenerating: Boolean,
     onAttach: () -> Unit,
     isWebSearchEnabled: Boolean,
-    onToggleWebSearch: () -> Unit
+    onToggleWebSearch: () -> Unit,
+    isThinkingEnabled: Boolean,
+    onToggleThinking: () -> Unit
 ) {
     var textState by remember { mutableStateOf(TextFieldValue("")) }
 
@@ -1053,41 +1083,67 @@ fun MessageInput(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(Color.LightGray.copy(alpha = 0.3f))
-                        .clickable { onAttach() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Outlined.AttachFile,
-                        contentDescription = "Attach file",
-                        tint = AbbasBlue,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                var optionsExpanded by remember { mutableStateOf(false) }
 
-                Spacer(modifier = Modifier.width(8.dp))
-
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (isWebSearchEnabled) AbbasBlue.copy(alpha = 0.2f)
-                            else Color.LightGray.copy(alpha = 0.3f)
+                // All composer options live behind a single "+" (DeepSeek/Qwen style):
+                // attach, web search, and thinking.
+                Box {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Color.LightGray.copy(alpha = 0.3f))
+                            .clickable { optionsExpanded = true },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = "More options",
+                            tint = AbbasBlue,
+                            modifier = Modifier.size(20.dp)
                         )
-                        .clickable { onToggleWebSearch() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (isWebSearchEnabled) Icons.Filled.Public else Icons.Outlined.Public,
-                        contentDescription = "Toggle web search",
-                        tint = if (isWebSearchEnabled) AbbasBlue else Color.Gray,
-                        modifier = Modifier.size(20.dp)
-                    )
+                    }
+                    DropdownMenu(
+                        expanded = optionsExpanded,
+                        onDismissRequest = { optionsExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Attach file") },
+                            leadingIcon = { Icon(Icons.Outlined.AttachFile, contentDescription = null, tint = AbbasBlue) },
+                            onClick = {
+                                optionsExpanded = false
+                                onAttach()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Web search") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = if (isWebSearchEnabled) Icons.Filled.Public else Icons.Outlined.Public,
+                                    contentDescription = null,
+                                    tint = if (isWebSearchEnabled) AbbasBlue else Color.Gray
+                                )
+                            },
+                            trailingIcon = {
+                                if (isWebSearchEnabled) Icon(Icons.Default.Check, contentDescription = null, tint = AbbasBlue)
+                            },
+                            onClick = { onToggleWebSearch() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Thinking") },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Outlined.Psychology,
+                                    contentDescription = null,
+                                    tint = if (isThinkingEnabled) AbbasBlue else Color.Gray
+                                )
+                            },
+                            trailingIcon = {
+                                if (isThinkingEnabled) Icon(Icons.Default.Check, contentDescription = null, tint = AbbasBlue)
+                            },
+                            onClick = { onToggleThinking() }
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.width(8.dp))

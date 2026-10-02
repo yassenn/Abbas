@@ -47,12 +47,12 @@ class ThinkingSplitTest {
     }
 
     @Test
-    fun `empty reasoning yields empty thought and full answer`() {
+    fun `empty reasoning yields no thought block and full answer`() {
         val split = splitThinking(
             "$thinkClose\n\nParis is the capital of France.",
             qwenStart, qwenEnds, supportsThinking = true
         )
-        assertEquals("", split.thought)
+        assertNull(split.thought)
         assertEquals("Paris is the capital of France.", split.text)
         assertTrue(split.closed)
     }
@@ -102,5 +102,31 @@ class ThinkingSplitTest {
         assertNull(split.thought)
         assertEquals("", split.text)
         assertFalse(split.closed)
+    }
+
+    @Test
+    fun `thinking disabled treats markerless output as the answer`() {
+        // With thinking off the model answers directly; a markerless stream must NOT
+        // be misread as an open reasoning trace.
+        val split = splitThinking(
+            "Paris is the capital of France.", qwenStart, qwenEnds,
+            supportsThinking = true, thinkingEnabled = false
+        )
+        assertNull(split.thought)
+        assertEquals("Paris is the capital of France.", split.text)
+        assertFalse(split.closed)
+    }
+
+    @Test
+    fun `thinking disabled with stray close marker reports no thought`() {
+        // Some models emit a redundant close marker even with thinking off — that must
+        // not surface an empty Thought block or a "Thought for" timer.
+        val split = splitThinking(
+            "$thinkClose\n\nParis is the capital of France.", qwenStart, qwenEnds,
+            supportsThinking = true, thinkingEnabled = false
+        )
+        assertNull(split.thought)
+        assertEquals("Paris is the capital of France.", split.text)
+        assertTrue(split.closed)
     }
 }

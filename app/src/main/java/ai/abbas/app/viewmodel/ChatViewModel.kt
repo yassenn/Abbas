@@ -101,6 +101,7 @@ class ChatViewModel(
             .putFloat("gen_presence_penalty", settings.presencePenalty)
             .putInt("gen_max_tokens", settings.maxTokens)
             .putInt("gen_seed", settings.seed ?: -1)
+            .putBoolean("gen_enable_thinking", settings.enableThinking)
             .apply()
     }
 
@@ -110,8 +111,16 @@ class ChatViewModel(
             topP = prefs.getFloat("gen_top_p", 0.9f),
             frequencyPenalty = prefs.getFloat("gen_frequency_penalty", 0.0f),
             presencePenalty = prefs.getFloat("gen_presence_penalty", 0.0f),
-            maxTokens = prefs.getInt("gen_max_tokens", 512),
-            seed = prefs.getInt("gen_seed", -1).takeIf { it >= 0 }
+            maxTokens = prefs.getInt("gen_max_tokens", 2048),
+            seed = prefs.getInt("gen_seed", -1).takeIf { it >= 0 },
+            enableThinking = prefs.getBoolean("gen_enable_thinking", true)
+        )
+    }
+
+    /** Flip the reasoning-trace toggle from the composer, persisting the choice. */
+    fun toggleThinking() {
+        updateGenerationSettings(
+            _generationSettings.value.copy(enableThinking = !_generationSettings.value.enableThinking)
         )
     }
 
@@ -693,14 +702,17 @@ class ChatViewModel(
             if (_isWebSearchEnabled.value) {
                 webContext = try {
                     val results = withContext(Dispatchers.IO) {
-                        WebSearchRepository.search(text, maxResults = 3)
+                        WebSearchRepository.searchWithContent(text, maxResults = 3)
                     }
                     if (results.isNotEmpty()) {
                         buildString {
                             appendLine("Web Search Results:")
                             results.forEachIndexed { i, r ->
-                                val line = "[${i + 1}] ${r.title}: ${r.snippet}"
-                                appendLine(line)
+                                appendLine("[${i + 1}] ${r.title} — ${r.source}")
+                                appendLine("URL: ${r.url}")
+                                val body = r.content.ifBlank { r.snippet }
+                                if (body.isNotBlank()) appendLine(body)
+                                appendLine()
                             }
                         }.trimEnd()
                     } else {
@@ -725,6 +737,11 @@ class ChatViewModel(
                 appendLine("Current Date: $currentDate")
                 if (webContext.isNotBlank()) {
                     appendLine()
+                    appendLine(
+                        "You have live web search results below. Use them to answer the " +
+                            "user's question and cite sources like [1]. Do not claim you lack " +
+                            "internet access. If the results do not contain the answer, say so."
+                    )
                     appendLine(webContext)
                 }
                 if (localContext.isNotBlank()) {
@@ -817,7 +834,7 @@ class ChatViewModel(
                     // Throttle UI updates to every 100ms to prevent UI thread saturation
                     if (currentTime - lastUiUpdateTime > 100) {
                         val split = splitThinking(fullContent)
-                        if (thoughtEndTimeMs == null && split.closed) thoughtEndTimeMs = currentTime
+                        if (thoughtEndTimeMs == null && split.closed && split.thought != null) thoughtEndTimeMs = currentTime
 
                         _generatingMessage.update { message ->
                             message?.copy(
@@ -893,7 +910,10 @@ class ChatViewModel(
      */
     private fun splitThinking(full: String): ThinkingSplit {
         val tags = llmEngineManager.thinkingTags
-        return ai.abbas.app.viewmodel.splitThinking(full, tags.start, tags.ends, tags.supported)
+        return ai.abbas.app.viewmodel.splitThinking(
+            full, tags.start, tags.ends, tags.supported,
+            thinkingEnabled = _generationSettings.value.enableThinking
+        )
     }
 
     fun newChat() {
@@ -906,8 +926,8 @@ class ChatViewModel(
         messagesJob?.cancel()
     }
 
-    fun clearModelCache() {
-        llmEngineManager.clearModelCache()
+    /** Delete every chat session and its messages, then start a fresh chat. */
+    fun clearAllChats() {
         viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
             _sessions.value.forEach {
                 messageDao.deleteMessagesForSession(it.id)
@@ -915,10 +935,6 @@ class ChatViewModel(
             }
         }
         newChat()
-        refreshDownloadedModels()
-        refreshOrphanedWeights()
-        val compatibleModels = allModels.value.filter { llmEngineManager.isDeviceCapable(it) }
-        _uiState.value = ChatUiState.SelectingModel(compatibleModels)
     }
 
     override fun onCleared() {

@@ -2,6 +2,11 @@ package ai.abbas.app.repository
 
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import java.io.InputStream
 import java.net.URI
 import java.net.URLDecoder
 import java.net.URLEncoder
@@ -87,6 +92,8 @@ object WebSearchRepository {
         val title: String,
         val snippet: String,
         val url: String,
+        /** Readable body text scraped from the result page (empty when unavailable). */
+        val content: String = "",
         /** True when the source is a credible organisation (see [isCredibleSource]). */
         val credible: Boolean = false,
         /** Lower-cased host of the source, for citations. */
@@ -119,15 +126,86 @@ object WebSearchRepository {
         return ranked.distinctBy { it.url }.take(maxResults)
     }
 
+    /**
+     * Run [search], then fetch and extract the readable text of each result page
+     * in parallel. This is what lets the model actually answer data questions
+     * (weather, prices, dates) instead of hallucinating from link stubs.
+     *
+     * Runs synchronously; call from a coroutine. Pages that fail to load, are
+     * non-HTML, or are empty contribute no [SearchResult.content].
+     */
+    suspend fun searchWithContent(
+        query: String,
+        maxResults: Int = 3,
+        perPageChars: Int = 1200
+    ): List<SearchResult> {
+        val results = search(query, maxResults)
+        if (results.isEmpty()) return results
+        return coroutineScope {
+            results
+                .map { r -> async(Dispatchers.IO) { r.copy(content = fetchPageText(r.url, perPageChars)) } }
+                .awaitAll()
+        }
+    }
+
+    /** Download [url] and return its readable body text, capped at [maxChars]. */
+    private fun fetchPageText(url: String, maxChars: Int): String {
+        if (!url.startsWith("http://") && !url.startsWith("https://")) return ""
+        val request = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()
+        return try {
+            client.newCall(request).execute().use { response ->
+                val type = response.header("Content-Type").orEmpty()
+                if (!type.contains("text/html", true) && !type.contains("text/plain", true)) return ""
+                val body = response.body?.byteStream()?.use { readCapped(it, MAX_PAGE_BYTES) } ?: return ""
+                htmlToText(body).take(maxChars)
+            }
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    /** Read at most [cap] bytes from [input] as UTF-8 (guards against huge pages). */
+    private fun readCapped(input: InputStream, cap: Int): String {
+        val buf = ByteArray(cap)
+        var off = 0
+        while (off < cap) {
+            val n = input.read(buf, off, cap - off)
+            if (n < 0) break
+            off += n
+        }
+        return String(buf, 0, off, Charsets.UTF_8)
+    }
+
+    /**
+     * Crude but dependency-free HTML → text: drop script/style/head, break on
+     * block tags, strip the rest, decode entities, collapse whitespace. Good
+     * enough to surface page content to an LLM without pulling in a parser.
+     *
+     * Visible for testing.
+     */
+    internal fun htmlToText(html: String): String {
+        var s = html
+        s = s.replace(Regex("(?is)<(script|style|noscript|svg|head|nav|footer)[^>]*>.*?</\\1>"), " ")
+        s = s.replace(Regex("(?i)<br\\s*/?>"), "\n")
+        s = s.replace(Regex("(?i)</(p|div|li|tr|h[1-6]|section|article|td)>"), "\n")
+        s = s.replace(Regex("<[^>]+>"), " ")
+        s = htmlDecode(s)
+        s = s.replace(Regex("[ \\t\\x0B\\f\\r]+"), " ")
+        s = s.replace(Regex(" *\\n *"), "\n")
+        s = s.replace(Regex("\\n\\s*\\n+"), "\n")
+        return s.trim()
+    }
+
+    private const val USER_AGENT =
+        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
+    private const val MAX_PAGE_BYTES = 512 * 1024
+
     private fun fetch(query: String, limit: Int): List<SearchResult> {
         val encoded = URLEncoder.encode(query, "UTF-8")
         val url = "https://lite.duckduckgo.com/lite/?q=$encoded"
         val request = Request.Builder()
             .url(url)
-            .header(
-                "User-Agent",
-                "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
-            )
+            .header("User-Agent", USER_AGENT)
             .build()
 
         return try {

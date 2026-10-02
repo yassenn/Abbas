@@ -336,7 +336,7 @@ class LlamaEngineManager(private val context: Context) {
         android.util.Log.d("Llama", "Generating: ${messages.size} messages, temp=${settings.temperature}")
 
         // Generate tokens
-        engine.chat(messages, maxTokens = settings.maxTokens).collect { token ->
+        engine.chat(messages, maxTokens = settings.maxTokens, enableThinking = settings.enableThinking).collect { token ->
             emit(token)
         }
 

@@ -14,12 +14,15 @@ package ai.abbas.app.data
  * - [presencePenalty] encourages topic diversity (-2.0 .. 2.0).
  * - [maxTokens] output length cap.
  * - [seed] fixed seed for reproducible output (null = random).
+ * - [enableThinking] let reasoning models emit a thinking trace before the
+ *   answer. Off = fast direct answers (JNI closes the trace block immediately).
  */
 data class GenerationSettings(
     val temperature: Float = 0.7f,
     val topP: Float = 0.9f,
     val frequencyPenalty: Float = 0.0f,
     val presencePenalty: Float = 0.0f,
-    val maxTokens: Int = 512,
-    val seed: Int? = null
+    val maxTokens: Int = 2048,
+    val seed: Int? = null,
+    val enableThinking: Boolean = true
 )

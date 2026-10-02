@@ -35,6 +35,7 @@ fun GenerationSettingsDialog(
     var presencePenalty by remember { mutableStateOf(settings.presencePenalty) }
     var maxTokens by remember { mutableStateOf(settings.maxTokens.toFloat()) }
     var seedText by remember { mutableStateOf(settings.seed?.toString() ?: "") }
+    var enableThinking by remember { mutableStateOf(settings.enableThinking) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -89,10 +90,39 @@ fun GenerationSettingsDialog(
                     info = "Maximum length of the response. Higher allows longer answers, lower keeps them concise.",
                     value = maxTokens,
                     onValueChange = { maxTokens = it },
-                    valueRange = 64f..1024f,
-                    steps = 15,
+                    valueRange = 128f..2048f,
+                    steps = 29,
                     valueFormat = { it.roundToInt().toString() }
                 )
+
+                // Thinking toggle: reasoning models trace before answering; off skips
+                // the trace for a fast direct answer.
+                var showThinkingInfo by remember { mutableStateOf(false) }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Thinking", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                        Spacer(Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Outlined.Info,
+                            contentDescription = "About Thinking",
+                            tint = if (showThinkingInfo) AbbasBlue else Color.Gray.copy(alpha = 0.7f),
+                            modifier = Modifier.size(16.dp).clickable { showThinkingInfo = !showThinkingInfo }
+                        )
+                    }
+                    Switch(checked = enableThinking, onCheckedChange = { enableThinking = it })
+                }
+                if (showThinkingInfo) {
+                    Text(
+                        "Reasoning models (Qwen3, DeepSeek R1, …) show a thinking trace before answering. " +
+                            "Turn off for faster, direct replies — the model answers without reasoning first.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
 
                 // Seed with info icon
                 var showSeedInfo by remember { mutableStateOf(false) }
@@ -132,8 +162,9 @@ fun GenerationSettingsDialog(
                         topP = 0.9f
                         frequencyPenalty = 0f
                         presencePenalty = 0f
-                        maxTokens = 512f
+                        maxTokens = 2048f
                         seedText = ""
+                        enableThinking = true
                     },
                     modifier = Modifier.align(Alignment.CenterHorizontally)
                 ) {
@@ -150,8 +181,9 @@ fun GenerationSettingsDialog(
                             topP = topP,
                             frequencyPenalty = frequencyPenalty,
                             presencePenalty = presencePenalty,
-                            maxTokens = maxTokens.roundToInt().coerceIn(64, 1024),
-                            seed = seedText.toIntOrNull()
+                            maxTokens = maxTokens.roundToInt().coerceIn(64, 2048),
+                            seed = seedText.toIntOrNull(),
+                            enableThinking = enableThinking
                         )
                     )
                 },

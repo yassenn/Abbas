@@ -30,12 +30,16 @@ internal val LEGACY_THINK_ENDS = listOf("</thought>", THINK_CLOSE)
  * @param startTag the template's opening marker ("" when none)
  * @param endTags every marker that closes the reasoning section
  * @param supportsThinking whether the template frames a reasoning section at all
+ * @param thinkingEnabled whether the user allowed a reasoning trace. When false, an
+ *   output with no markers is treated as the answer (never as an open trace), and a
+ *   blank trace is reported as "no thought" rather than an empty block.
  */
 internal fun splitThinking(
     full: String,
     startTag: String = "",
     endTags: List<String> = emptyList(),
-    supportsThinking: Boolean = false
+    supportsThinking: Boolean = false,
+    thinkingEnabled: Boolean = true
 ): ThinkingSplit {
     val starts = (listOf(startTag) + LEGACY_THINK_STARTS).filter { it.isNotEmpty() }
     val ends = (endTags + LEGACY_THINK_ENDS).filter { it.isNotEmpty() }
@@ -46,7 +50,7 @@ internal fun splitThinking(
     return when {
         start != null && end != null && end.first > start.first ->
             ThinkingSplit(
-                thought = full.substring(start.first + start.second.length, end.first).trim(),
+                thought = full.substring(start.first + start.second.length, end.first).trim().ifBlank { null },
                 text = full.substring(end.first + end.second.length).trimStart(),
                 closed = true
             )
@@ -54,13 +58,14 @@ internal fun splitThinking(
             ThinkingSplit(full.substring(start.first + start.second.length), "", closed = false)
         end != null ->
             ThinkingSplit(
-                full.substring(0, end.first).trim(),
-                full.substring(end.first + end.second.length).trimStart(),
+                thought = full.substring(0, end.first).trim().ifBlank { null },
+                text = full.substring(end.first + end.second.length).trimStart(),
                 closed = true
             )
-        // No marker yet: a template-driven thinking model is still reasoning
-        // (the opening marker lived in the prompt, not in the stream).
-        supportsThinking -> ThinkingSplit(full.takeIf { it.isNotBlank() }, "", closed = false)
+        // No marker: a template-driven thinking model is still reasoning (the opening
+        // marker lived in the prompt, not in the stream). Only valid while thinking is
+        // allowed — with it disabled the whole output is the answer.
+        supportsThinking && thinkingEnabled -> ThinkingSplit(full.takeIf { it.isNotBlank() }, "", closed = false)
         else -> ThinkingSplit(null, full, closed = false)
     }
 }

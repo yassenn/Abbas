@@ -95,6 +95,25 @@ static int decode_tokens_batch(llama_context *ctx, llama_batch &batch,
     return 0;
 }
 
+// Marker that closes the reasoning block, derived from the template's opening tag.
+// The template's thinking_end_tags can carry an empty first entry (Qwen3.5 reports
+// ends=["", "<tool_call>"]), so blindly appending front() is a no-op and the model
+// keeps reasoning. Derive the real close from the open tag ("<x>" -> "</x>") and
+// only fall back to the first non-empty end tag.
+static std::string thinking_close_tag() {
+    const std::string & s = g_think_start;
+    if (s.size() >= 3 && s.front() == '<' && s.back() == '>') {
+        std::string inner = s.substr(1, s.size() - 2);
+        if (!inner.empty() && inner.front() != '/') {
+            return "</" + inner + ">";
+        }
+    }
+    for (const auto & t : g_think_ends) {
+        if (!t.empty()) return t;
+    }
+    return "";
+}
+
 // Format `content` for `role` and append it to the running chat history.
 // `add_ass` (the assistant generation prompt) must be true ONLY for the final
 // user turn — the turn we generate from. Passing it for every user turn makes
@@ -109,8 +128,10 @@ static std::string chat_format_and_add(const std::string &role, const std::strin
     // Thinking disabled: the template already opened a reasoning block in the
     // generation prompt, so close it straight away (empty trace) and the model
     // answers directly — the "search engine" behaviour.
-    if (add_ass && !g_enable_thinking && g_supports_thinking && !g_think_ends.empty()) {
-        formatted += g_think_ends.front();
+    if (add_ass && !g_enable_thinking && g_supports_thinking) {
+        const std::string close = thinking_close_tag();
+        if (!close.empty()) formatted += close;
+        LOGi("Thinking disabled: suppressing trace, close='%s'", close.c_str());
     }
     g_chat_msgs.push_back(msg);
     return formatted;
