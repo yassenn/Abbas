@@ -352,16 +352,18 @@ class ChatViewModel(
     val payPalPaymentEvent = _payPalPaymentEvent.asSharedFlow()
 
     fun processStripeDonation(amount: Double, onResult: (Boolean, String) -> Unit) {
+        // Never fake a successful payment. If the gateway/backend is not wired
+        // up (placeholder config), fail honestly instead of showing "thank you".
+        if (!PaymentConfig.stripeConfigured) {
+            viewModelScope.launch(Dispatchers.Main) {
+                onResult(false, "Card donations are not available yet — the payment backend is not configured.")
+            }
+            return
+        }
         viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
             try {
-                // Mocking backend call for Stripe
-                kotlinx.coroutines.delay(1000)
-                val mockConfig = StripePaymentConfig(
-                    paymentIntent = "pi_mock_secret_${UUID.randomUUID()}",
-                    ephemeralKey = "ek_mock_${UUID.randomUUID()}",
-                    customer = "cus_mock_${UUID.randomUUID()}"
-                )
-                _stripePaymentEvent.emit(mockConfig)
+                val config = fetchStripeConfig(amount)
+                _stripePaymentEvent.emit(config)
                 viewModelScope.launch(Dispatchers.Main) { onResult(true, "Stripe ready") }
             } catch (e: Exception) {
                 viewModelScope.launch(Dispatchers.Main) { onResult(false, "Stripe init failed: ${e.message}") }
@@ -370,12 +372,16 @@ class ChatViewModel(
     }
 
     fun processPayPalDonation(amount: Double, onResult: (Boolean, String) -> Unit) {
+        if (!PaymentConfig.paypalConfigured) {
+            viewModelScope.launch(Dispatchers.Main) {
+                onResult(false, "PayPal donations are not available yet — the payment backend is not configured.")
+            }
+            return
+        }
         viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
             try {
-                // Mocking backend call for PayPal
-                kotlinx.coroutines.delay(1000)
-                val mockConfig = PayPalPaymentConfig(orderId = "PAYID-MOCK-${UUID.randomUUID()}")
-                _payPalPaymentEvent.emit(mockConfig)
+                val orderId = fetchPayPalOrderId(amount)
+                _payPalPaymentEvent.emit(PayPalPaymentConfig(orderId = orderId))
                 viewModelScope.launch(Dispatchers.Main) { onResult(true, "PayPal ready") }
             } catch (e: Exception) {
                 viewModelScope.launch(Dispatchers.Main) { onResult(false, "PayPal init failed: ${e.message}") }

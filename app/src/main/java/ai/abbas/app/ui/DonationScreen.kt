@@ -224,7 +224,7 @@ fun DonationScreen(
                         if (!success) { isProcessing = false; message = msg }
                     }
                 },
-                enabled = !isProcessing && finalAmount > 0,
+                enabled = !isProcessing && finalAmount > 0 && PaymentConfig.stripeConfigured,
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = AbbasBlue),
                 shape = RoundedCornerShape(28.dp)
@@ -244,7 +244,7 @@ fun DonationScreen(
                         if (!success) { isProcessing = false; message = msg }
                     }
                 },
-                enabled = !isProcessing && finalAmount > 0,
+                enabled = !isProcessing && finalAmount > 0 && PaymentConfig.paypalConfigured,
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFC439)), // PayPal Gold
                 shape = RoundedCornerShape(28.dp)
@@ -254,6 +254,16 @@ fun DonationScreen(
             
             Spacer(modifier = Modifier.height(16.dp))
             
+            if (!PaymentConfig.stripeConfigured && !PaymentConfig.paypalConfigured) {
+                Text(
+                    "Donations are temporarily unavailable — payment is not configured in this build.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+            }
+
             Text(
                 "Secure payments processed by Stripe and PayPal",
                 style = MaterialTheme.typography.labelSmall,
