@@ -4,6 +4,7 @@ import android.content.Context
 import ai.abbas.app.data.SecurityUtils
 import androidx.security.crypto.EncryptedFile
 import java.io.File
+import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -81,7 +82,8 @@ class SimpleVectorStore(private val context: Context, private val vectorDim: Int
     }
 
     private fun saveToDisk() {
-        // Save vectors as contiguous float32 array (native byte order)
+        // EncryptedFile.openFileOutput() refuses to overwrite an existing file,
+        // so every rewrite first clears its target (see writeEncrypted).
         val vectorFile = File(context.filesDir, VECTOR_FILE_NAME)
         val byteBuffer = ByteBuffer
             .allocate(vectors.size * vectorDim * 4)
@@ -91,16 +93,17 @@ class SimpleVectorStore(private val context: Context, private val vectorDim: Int
                 byteBuffer.putFloat(f)
             }
         }
-        encryptedFile(vectorFile).openFileOutput().use { out ->
-            out.write(byteBuffer.array(), 0, byteBuffer.position())
-        }
+        writeEncrypted(vectorFile) { it.write(byteBuffer.array(), 0, byteBuffer.position()) }
 
         // Save IDs as UTF-8 lines (one per line)
         val idsFile = File(context.filesDir, IDS_FILE_NAME)
-        val idsText = chunkIds.joinToString(separator = "\n")
-        encryptedFile(idsFile).openFileOutput().use { out ->
-            out.write(idsText.toByteArray(Charsets.UTF_8))
-        }
+        writeEncrypted(idsFile) { it.write(chunkIds.joinToString("\n").toByteArray(Charsets.UTF_8)) }
+    }
+
+    /** Write an encrypted file from scratch, deleting any previous copy first. */
+    private fun writeEncrypted(file: File, block: (OutputStream) -> Unit) {
+        if (file.exists()) file.delete()
+        encryptedFile(file).openFileOutput().use(block)
     }
 
     private fun loadFromDisk() {
