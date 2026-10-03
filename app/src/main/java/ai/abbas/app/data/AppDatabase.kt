@@ -23,9 +23,13 @@ abstract class AppDatabase : RoomDatabase() {
         private const val DB_NAME = "knowledge_database"
 
         /**
-         * Deletes the old plaintext database file so SQLCipher can create
-         * a fresh encrypted one. This is a one-time migration when upgrading
-         * from unencrypted to encrypted storage.
+         * Ensures the on-disk DB is one SQLCipher can open with [passphrase].
+         *
+         * If the existing file cannot be opened with our passphrase it is either a
+         * legacy plaintext database or one encrypted under a different/lost key.
+         * In that case the file (and its journals) is *moved aside* rather than
+         * deleted, so no user data is ever destroyed, and Room is then free to
+         * create a fresh encrypted database.
          */
         private fun migratePlaintextToEncrypted(context: Context, passphrase: ByteArray) {
             val dbFile = context.getDatabasePath(DB_NAME)
@@ -44,11 +48,19 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                 db.close()
             } catch (_: Exception) {
-                // Can't open as SQLCipher — old plaintext DB. Delete it.
-                dbFile.delete()
-                File(dbFile.absolutePath + "-wal").delete()
-                File(dbFile.absolutePath + "-shm").delete()
-                File(dbFile.absolutePath + "-journal").delete()
+                // Not openable with our passphrase (plaintext legacy DB, or a DB
+                // encrypted under a different key). Preserve it — rename, don't delete.
+                quarantineDatabase(dbFile)
+            }
+        }
+
+        /** Move an unreadable DB and its sidecar journals aside for recovery. */
+        private fun quarantineDatabase(dbFile: File) {
+            val stamped = dbFile.absolutePath + ".unreadable-" + System.currentTimeMillis()
+            dbFile.renameTo(File(stamped))
+            for (ext in listOf("-wal", "-shm", "-journal")) {
+                val sidecar = File(dbFile.absolutePath + ext)
+                if (sidecar.exists()) sidecar.renameTo(File(sidecar.absolutePath + ".unreadable"))
             }
         }
 
