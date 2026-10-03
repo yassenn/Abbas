@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import ai.abbas.app.BuildConfig
 import ai.abbas.app.MainActivity
 import ai.abbas.app.R
 import ai.abbas.app.data.ModelConfig
@@ -131,7 +132,7 @@ class DownloadService : Service() {
         val job = scope.launch {
             try {
                 val mgr = engineManager!!
-                android.util.Log.d("DownloadSvc", "Starting download: ${model.id} from ${model.baseUrl}")
+                if (BuildConfig.DEBUG) android.util.Log.d("DownloadSvc", "Starting download: ${model.id} from ${model.baseUrl}")
                 val result = mgr.downloadWeightsOnly(model, hfToken.ifBlank { null }) { progress, status ->
                     val s = state.copy(progress = progress, status = status)
                     _currentStates[model.id] = s
@@ -157,7 +158,7 @@ class DownloadService : Service() {
                     }
                 }
             } catch (e: CancellationException) {
-                android.util.Log.d("DownloadSvc", "Download cancelled: ${model.id}")
+                if (BuildConfig.DEBUG) android.util.Log.d("DownloadSvc", "Download cancelled: ${model.id}")
                 _currentStates.remove(model.id)
                 _progressFlow.tryEmit(state.copy(status = "Cancelled", done = true))
             } catch (e: Exception) {

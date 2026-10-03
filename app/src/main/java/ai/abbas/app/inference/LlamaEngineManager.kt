@@ -3,6 +3,7 @@
 package ai.abbas.app.inference
 
 import android.content.Context
+import ai.abbas.app.BuildConfig
 import ai.abbas.llama.LlamaEngine
 import ai.abbas.app.data.ModelConfig
 import ai.abbas.app.data.GenerationSettings
@@ -230,7 +231,7 @@ class LlamaEngineManager(private val context: Context) {
                 engineReady = true
                 _currentModel.value = model
                 thinkingTags = llamaEngine?.thinkingTags() ?: LlamaEngine.ThinkingTags.NONE
-                android.util.Log.i(
+                if (BuildConfig.DEBUG) android.util.Log.i(
                     "Llama",
                     "Thinking tags: supported=${thinkingTags.supported} " +
                         "start='${thinkingTags.start}' ends=${thinkingTags.ends}"
@@ -247,7 +248,7 @@ class LlamaEngineManager(private val context: Context) {
 
             kotlin.Result.success(Unit)
         } catch (e: CancellationException) {
-            android.util.Log.d("Llama", "Initialization cancelled by user")
+            if (BuildConfig.DEBUG) android.util.Log.d("Llama", "Initialization cancelled by user")
             kotlin.Result.failure(e)
         } catch (e: CorruptedModelException) {
             kotlin.Result.failure(e)
@@ -333,14 +334,14 @@ class LlamaEngineManager(private val context: Context) {
             seed = settings.seed
         )
 
-        android.util.Log.d("Llama", "Generating: ${messages.size} messages, temp=${settings.temperature}")
+        if (BuildConfig.DEBUG) android.util.Log.d("Llama", "Generating: ${messages.size} messages, temp=${settings.temperature}")
 
         // Generate tokens
         engine.chat(messages, maxTokens = settings.maxTokens, enableThinking = settings.enableThinking).collect { token ->
             emit(token)
         }
 
-        android.util.Log.d("Llama", "Generation complete")
+        if (BuildConfig.DEBUG) android.util.Log.d("Llama", "Generation complete")
     }.flowOn(inferenceDispatcher)
 
     fun stopGeneration() {

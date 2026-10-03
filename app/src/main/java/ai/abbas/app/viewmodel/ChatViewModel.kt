@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import ai.abbas.app.BuildConfig
 import ai.abbas.app.inference.LlamaEngineManager
 import ai.abbas.app.data.MessageDao
 import ai.abbas.app.data.MessageEntity
@@ -237,7 +238,7 @@ class ChatViewModel(
 
         val compatibleModels = allModels.value.filter { llmEngineManager.isDeviceCapable(it) }
         val lastModelId = prefs.getString("last_model_id", null)
-        android.util.Log.d("Abbas", "Init: allModels=${allModels.value.map{it.id}}, compatibleModels=${compatibleModels.map{it.id}}, lastModelId=$lastModelId")
+        if (BuildConfig.DEBUG) android.util.Log.d("Abbas", "Init: allModels=${allModels.value.map{it.id}}, compatibleModels=${compatibleModels.map{it.id}}, lastModelId=$lastModelId")
 
         if (compatibleModels.isEmpty()) {
             _uiState.value = ChatUiState.Incompatible
@@ -540,13 +541,13 @@ class ChatViewModel(
      * separate concern from loading — see [initModel].
      */
     fun downloadModel(model: ModelConfig) {
-        android.util.Log.d("Abbas", "downloadModel called for ${model.id}")
-        if (downloadJobs.containsKey(model.id)) { android.util.Log.d("Abbas", "downloadModel: already in downloadJobs"); return }
+        if (BuildConfig.DEBUG) android.util.Log.d("Abbas", "downloadModel called for ${model.id}")
+        if (downloadJobs.containsKey(model.id)) { if (BuildConfig.DEBUG) android.util.Log.d("Abbas", "downloadModel: already in downloadJobs"); return }
         val isDownloaded = llmEngineManager.isModelDownloaded(model)
         val isInAssets = llmEngineManager.isModelInAssets(model)
-        android.util.Log.d("Abbas", "downloadModel: isDownloaded=$isDownloaded, isInAssets=$isInAssets")
+        if (BuildConfig.DEBUG) android.util.Log.d("Abbas", "downloadModel: isDownloaded=$isDownloaded, isInAssets=$isInAssets")
         if (isDownloaded || isInAssets) {
-            android.util.Log.d("Abbas", "downloadModel: SKIPPING (already here)")
+            if (BuildConfig.DEBUG) android.util.Log.d("Abbas", "downloadModel: SKIPPING (already here)")
             return
         }
 
@@ -757,19 +758,22 @@ class ChatViewModel(
                 }
             }.trim()
 
-            android.util.Log.d(
-                "RAG",
-                "Retrieved ${contextChunks.size} local chunks. Web search enabled=${_isWebSearchEnabled.value}. Context: $finalContext"
-            )
+            if (BuildConfig.DEBUG) {
+                // NB: never log finalContext — it contains the user's query and document text.
+                android.util.Log.d(
+                    "RAG",
+                    "Retrieved ${contextChunks.size} local chunks. Web search enabled=${_isWebSearchEnabled.value}."
+                )
+            }
             generateInternal(text, sessionId, botMessageId, finalContext)
         }
     }
 
     fun ingestDocument(uri: Uri) {
         viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
-            android.util.Log.d("RAG", "Starting ingestion for $uri")
+            if (BuildConfig.DEBUG) android.util.Log.d("RAG", "Starting ingestion for $uri")
             val docId = knowledgeRepository.addDocument(uri)
-            android.util.Log.d("RAG", "Ingested document id=$docId")
+            if (BuildConfig.DEBUG) android.util.Log.d("RAG", "Ingested document id=$docId")
             // Optionally emit a success event
             _errors.emit("Document ingested (id=$docId)")
         }
