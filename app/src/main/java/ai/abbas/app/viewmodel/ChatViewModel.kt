@@ -11,6 +11,7 @@ import ai.abbas.app.data.MessageEntity
 import ai.abbas.app.data.ChatSessionEntity
 import ai.abbas.app.data.availableModels
 import ai.abbas.app.data.ModelConfig
+import ai.abbas.app.data.validateCustomModel
 import ai.abbas.app.data.GenerationSettings
 import ai.abbas.app.data.PaymentConfig
 import ai.abbas.app.data.StripePaymentConfig
@@ -229,7 +230,10 @@ class ChatViewModel(
         // Load custom models
         val customJson = prefs.getString(customModelsKey, "[]")
         val type = object : com.google.gson.reflect.TypeToken<List<ModelConfig>>() {}.type
-        _customModels.value = com.google.gson.Gson().fromJson(customJson, type)
+        val loadedCustom: List<ModelConfig> = com.google.gson.Gson().fromJson(customJson, type)
+        // Drop any persisted custom model that fails validation (unsafe id /
+        // filename / non-https URL) — custom models are untrusted input.
+        _customModels.value = loadedCustom.filter { validateCustomModel(it) == null }
 
         loadSessions()
         refreshDownloadedModels()
@@ -260,6 +264,11 @@ class ChatViewModel(
     }
 
     fun addCustomModel(model: ModelConfig) {
+        val error = validateCustomModel(model)
+        if (error != null) {
+            viewModelScope.launch { _errors.emit(error) }
+            return
+        }
         val newList = _customModels.value + model
         _customModels.value = newList
         val json = com.google.gson.Gson().toJson(newList)

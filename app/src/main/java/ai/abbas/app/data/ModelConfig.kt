@@ -22,6 +22,41 @@ data class ModelConfig(
     val isCustom: Boolean = false
 )
 
+/**
+ * Validates a user-supplied custom model. Custom models are an untrusted input
+ * surface: [ModelConfig.id] and [ModelConfig.ggufFile] are used to build on-disk
+ * paths (path-traversal risk) and [ModelConfig.baseUrl] is fetched over the
+ * network (SSRF / cleartext / malicious-GGUF risk), so all three are constrained.
+ *
+ * @return null when the model is safe to accept, otherwise a human-readable reason.
+ */
+fun validateCustomModel(model: ModelConfig): String? {
+    if (!model.id.matches(Regex("[A-Za-z0-9._-]{1,64}"))) {
+        return "Model ID may only contain letters, digits, '.', '_' and '-'."
+    }
+    val file = model.ggufFile
+    if (file.isBlank() || file.contains('/') || file.contains('\\') ||
+        file.contains("..") || !file.endsWith(".gguf", ignoreCase = true)
+    ) {
+        return "GGUF filename must be a plain '*.gguf' name with no path separators."
+    }
+    if (!isHttpsUrl(model.baseUrl)) {
+        return "Base URL must be a valid https:// URL."
+    }
+    return null
+}
+
+/** True when [url] is an absolute https URL with a parseable host. */
+private fun isHttpsUrl(url: String): Boolean {
+    val trimmed = url.trim()
+    if (!trimmed.startsWith("https://")) return false
+    return try {
+        !java.net.URI(trimmed).host.isNullOrBlank()
+    } catch (_: Exception) {
+        false
+    }
+}
+
 val availableModels = listOf(
     // ── Alibaba · Qwen (latest 3.5 series) ──────────────────────────────────────
     ModelConfig(
