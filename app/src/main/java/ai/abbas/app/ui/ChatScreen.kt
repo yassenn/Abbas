@@ -598,7 +598,17 @@ fun ChatScreen(viewModel: ChatViewModel) {
                                 onSendMessage = viewModel::sendMessage,
                                 onStopGeneration = viewModel::stopGeneration,
                                 isGenerating = messages.lastOrNull()?.isGenerating == true,
-                                onAttach = { filePickerLauncher.launch(arrayOf("text/plain")) },
+                                onAttach = {
+                                    filePickerLauncher.launch(
+                                        arrayOf(
+                                            "text/plain",
+                                            "text/markdown",
+                                            "text/csv",
+                                            "application/pdf",
+                                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                        )
+                                    )
+                                },
                                 isWebSearchEnabled = isWebSearchEnabled,
                                 onToggleWebSearch = { viewModel.toggleWebSearch() },
                                 isThinkingEnabled = generationSettings.enableThinking,

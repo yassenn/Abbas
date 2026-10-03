@@ -13,8 +13,8 @@ android {
         applicationId = "ai.abbas.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 186
-        versionName = "1.6.25-cpu"
+        versionCode = 187
+        versionName = "1.6.26-cpu"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -104,6 +104,8 @@ dependencies {
 
     // Networking for model download
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // PDF text extraction for document ingestion
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     // WorkManager for background tasks
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 

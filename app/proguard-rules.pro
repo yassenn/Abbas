@@ -18,4 +18,7 @@
 # SQLCipher
 -keep class net.zetetic.database.sqlcipher.** { *; }
 -keep class net.zetetic.database.** { *; }
+# PDFBox-Android (PDF text extraction)
+-keep class com.tom_roush.** { *; }
+-dontwarn com.tom_roush.**
 -keep class ai.abbas.app.inference.DownloadWorker { *; }

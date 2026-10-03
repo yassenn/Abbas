@@ -16,11 +16,7 @@ import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.support.common.FileUtil
 import org.tensorflow.lite.support.tensorbuffer.TensorBuffer
-import java.io.BufferedReader
-import java.io.File
 import java.io.FileInputStream
-import java.io.FileOutputStream
-import java.io.InputStreamReader
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
 import kotlin.math.min
@@ -97,7 +93,11 @@ class KnowledgeRepository private constructor(
      */
     suspend fun addDocument(uri: Uri): Long = withContext(Dispatchers.Default) {
         val displayName = getDisplayName(uri)
-        val rawText = readTextFromUri(uri)
+        val mimeType = context.contentResolver.getType(uri)
+        val rawText = DocumentTextExtractor.extract(context, uri, displayName, mimeType)
+        if (rawText.isBlank()) {
+            throw DocumentExtractionException("No readable text found in \"$displayName\".")
+        }
         val document = DocumentEntity(
             title = displayName,
             contentUri = uri.toString()
@@ -144,31 +144,6 @@ class KnowledgeRepository private constructor(
         if (topChunkIds.isEmpty()) return@withContext emptyList()
         val chunkEntities = dao.getChunksByIds(topChunkIds)
         return@withContext chunkEntities.map { it.text }
-    }
-
-    private suspend fun readTextFromUri(uri: Uri): String {
-        return when {
-            uri.toString().startsWith("content://") -> readContentUri(uri)
-            uri.toString().startsWith("file://") -> {
-                val file = File(uri.path ?: uri.toString())
-                FileInputStream(file).bufferedReader().use { it.readText() }
-            }
-            else -> uri.toString() // treat as plain text
-        }
-    }
-
-    private suspend fun readContentUri(uri: Uri): String = withContext(Dispatchers.Default) {
-        val input = context.contentResolver.openInputStream(uri)
-        input?.use { stream ->
-            val reader = InputStreamReader(stream, "UTF-8")
-            val builder = StringBuilder()
-            val buffer = CharArray(8192)
-            var read: Int
-            while (reader.read(buffer).also { read = it } != -1) {
-                builder.append(buffer, 0, read)
-            }
-            builder.toString()
-        } ?: ""
     }
 
     private fun embedText(text: String): FloatArray {
