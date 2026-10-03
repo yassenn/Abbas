@@ -1,16 +1,19 @@
 package ai.abbas.app.storage
 
 import android.content.Context
+import ai.abbas.app.data.SecurityUtils
+import androidx.security.crypto.EncryptedFile
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.nio.channels.FileChannel
 
 /**
  * Simple vector store that keeps embeddings in memory and persists to disk.
  * For production, replace with a memory-mapped FAISS index (IVF-PQ or HNSW) via JNI.
+ *
+ * On disk both the float vectors and the chunk-id list are written through
+ * [EncryptedFile] (Keystore-backed AES-256-GCM + HMAC), so the embeddings — which
+ * encode the semantic content of ingested documents — are never stored in cleartext.
  */
 class SimpleVectorStore(private val context: Context, private val vectorDim: Int) {
     companion object {
@@ -22,13 +25,23 @@ class SimpleVectorStore(private val context: Context, private val vectorDim: Int
     private val vectors = mutableListOf<FloatArray>()
     private val chunkIds = mutableListOf<Long>() // corresponds to ChunkEntity row id
 
+    private val masterKey = SecurityUtils.getMasterKey(context)
+
     init {
         loadFromDisk()
     }
 
+    private fun encryptedFile(file: File): EncryptedFile =
+        EncryptedFile.Builder(
+            context,
+            file,
+            masterKey,
+            EncryptedFile.FileEncryptionScheme.AES256_GCM_HKDF_4KB
+        ).build()
+
     /** Add a vector with its associated chunkId */
     fun add(chunkId: Long, vector: FloatArray) {
-        require(vector.size == vectorDim) { "Vector dimension mismatch. Expected \$vectorDim, got \${vector.size}" }
+        require(vector.size == vectorDim) { "Vector dimension mismatch. Expected $vectorDim, got ${vector.size}" }
         vectors.add(vector.clone())
         chunkIds.add(chunkId)
         // Persist immediately (could be batched for performance)
@@ -68,27 +81,25 @@ class SimpleVectorStore(private val context: Context, private val vectorDim: Int
     }
 
     private fun saveToDisk() {
-        // Save vectors as contiguous float32 array
+        // Save vectors as contiguous float32 array (native byte order)
         val vectorFile = File(context.filesDir, VECTOR_FILE_NAME)
-        val totalFloats = vectors.size * vectorDim
-        val byteBuffer = ByteBuffer.allocateDirect(totalFloats * 4)
+        val byteBuffer = ByteBuffer
+            .allocate(vectors.size * vectorDim * 4)
             .order(ByteOrder.nativeOrder())
         for (vec in vectors) {
             for (f in vec) {
                 byteBuffer.putFloat(f)
             }
         }
-        byteBuffer.rewind()
-        FileOutputStream(vectorFile).use { fos ->
-            val channel = fos.channel
-            channel.write(byteBuffer)
+        encryptedFile(vectorFile).openFileOutput().use { out ->
+            out.write(byteBuffer.array(), 0, byteBuffer.position())
         }
 
         // Save IDs as UTF-8 lines (one per line)
         val idsFile = File(context.filesDir, IDS_FILE_NAME)
-        FileOutputStream(idsFile).use { fos ->
-            val idsText = chunkIds.joinToString(separator = "\n")
-            fos.write(idsText.toByteArray())
+        val idsText = chunkIds.joinToString(separator = "\n")
+        encryptedFile(idsFile).openFileOutput().use { out ->
+            out.write(idsText.toByteArray(Charsets.UTF_8))
         }
     }
 
@@ -98,24 +109,21 @@ class SimpleVectorStore(private val context: Context, private val vectorDim: Int
         if (!vectorFile.exists() || !idsFile.exists()) return
 
         try {
-            // Load vectors — file stores raw bytes: vectors.size * vectorDim * 4 bytes.
-            val byteBuffer = ByteBuffer.allocate(vectorFile.length().toInt())
-                .order(ByteOrder.nativeOrder())
-            FileInputStream(vectorFile).use { fis ->
-                val channel = fis.channel
-                channel.read(byteBuffer)
-            }
-            byteBuffer.rewind()
+            // Load vectors — payload stores raw bytes: vectors.size * vectorDim * 4 bytes.
+            val vectorBytes = encryptedFile(vectorFile).openFileInput().use { it.readBytes() }
+            val byteBuffer = ByteBuffer.wrap(vectorBytes).order(ByteOrder.nativeOrder())
             val floatBuffer = byteBuffer.asFloatBuffer()
             vectors.clear()
-            for (i in 0 until vectorFile.length() / (vectorDim * 4)) {
+            for (i in 0 until vectorBytes.size / (vectorDim * 4)) {
                 val vec = FloatArray(vectorDim)
                 floatBuffer.get(vec)
                 vectors.add(vec)
             }
 
             // Load IDs
-            val idsText = FileInputStream(idsFile).bufferedReader().use { it.readText() }
+            val idsText = encryptedFile(idsFile).openFileInput().use {
+                it.readBytes().toString(Charsets.UTF_8)
+            }
             chunkIds.clear()
             if (idsText.isNotBlank()) {
                 val idsList = idsText.split("\n").filter { it.isNotBlank() }.map { it.toLong() }
@@ -123,9 +131,10 @@ class SimpleVectorStore(private val context: Context, private val vectorDim: Int
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            // Corrupt files – reset
+            // Corrupt or legacy (plaintext) files – drop them and reset.
             vectors.clear()
             chunkIds.clear()
+            deleteFiles()
         }
     }
 
