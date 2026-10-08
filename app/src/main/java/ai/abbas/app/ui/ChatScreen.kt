@@ -38,6 +38,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import ai.abbas.app.BuildConfig
 import ai.abbas.app.data.ModelConfig
 import ai.abbas.app.data.GenerationSettings
+import ai.abbas.app.repository.IngestedDocument
 import ai.abbas.app.viewmodel.ChatMessage
 import ai.abbas.app.viewmodel.ChatUiState
 import ai.abbas.app.viewmodel.ChatViewModel
@@ -49,7 +50,7 @@ import kotlinx.coroutines.launch
 
 const val APP_VERSION = "v${BuildConfig.VERSION_NAME}"
 
-private enum class AppTab { CHAT, HUB }
+private enum class AppTab { CHAT, HUB, DOCS }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,10 +64,13 @@ fun ChatScreen(viewModel: ChatViewModel) {
     val generationSettings by viewModel.generationSettings.collectAsState()
     val downloadStates by viewModel.downloadStates.collectAsState()
     val downloadedModelIds by viewModel.downloadedModelIds.collectAsState()
+    val documents by viewModel.documents.collectAsState()
+    val attachedDocuments by viewModel.attachedDocuments.collectAsState()
 
     var currentTab by rememberSaveable { mutableStateOf(AppTab.CHAT) }
     var showAddCustomModel by remember { mutableStateOf(false) }
     var showClearChats by remember { mutableStateOf(false) }
+    var showDocumentPicker by remember { mutableStateOf(false) }
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val snackbarHostState = remember { SnackbarHostState() }
@@ -94,6 +98,18 @@ fun ChatScreen(viewModel: ChatViewModel) {
             onAdd = { model ->
                 viewModel.addCustomModel(model)
                 showAddCustomModel = false
+            }
+        )
+    }
+
+    if (showDocumentPicker) {
+        DocumentPickerDialog(
+            documents = documents,
+            currentSessionId = currentSessionId,
+            onDismiss = { showDocumentPicker = false },
+            onPick = { ids ->
+                viewModel.attachExistingDocuments(ids)
+                showDocumentPicker = false
             }
         )
     }
@@ -183,6 +199,27 @@ fun ChatScreen(viewModel: ChatViewModel) {
                                 contentDescription = null
                             )
                         }
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                    colors = NavigationDrawerItemDefaults.colors(
+                        selectedContainerColor = AbbasBlue.copy(alpha = 0.1f),
+                        selectedTextColor = AbbasBlue,
+                        selectedIconColor = AbbasBlue
+                    )
+                )
+
+                NavigationDrawerItem(
+                    label = { Text("Documents") },
+                    selected = currentTab == AppTab.DOCS,
+                    onClick = {
+                        currentTab = AppTab.DOCS
+                        scope.launch { drawerState.close() }
+                    },
+                    icon = {
+                        Icon(
+                            if (currentTab == AppTab.DOCS) Icons.Filled.Description else Icons.Outlined.Description,
+                            contentDescription = null
+                        )
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
                     colors = NavigationDrawerItemDefaults.colors(
@@ -365,6 +402,30 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     )
                     // AI Hub top bar lives here so it shares the Chat screen's inset
                     // handling (otherwise it re-applies the status-bar inset itself).
+                    currentTab == AppTab.DOCS -> CenterAlignedTopAppBar(
+                        title = {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    "Documents",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "Knowledge Base",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.Gray
+                                )
+                            }
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                Icon(Icons.Outlined.Menu, contentDescription = "Menu")
+                            }
+                        },
+                        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.background
+                        )
+                    )
                     else -> CenterAlignedTopAppBar(
                         title = {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -404,6 +465,13 @@ fun ChatScreen(viewModel: ChatViewModel) {
                         AiHubScreen(
                             viewModel = viewModel,
                             onOpenChat = { currentTab = AppTab.CHAT }
+                        )
+                    }
+                } else if (currentTab == AppTab.DOCS && uiState != ChatUiState.Donating) {
+                    Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+                        DocumentsScreen(
+                            documents = documents,
+                            onDelete = viewModel::deleteDocument
                         )
                     }
                 } else {
@@ -609,10 +677,13 @@ fun ChatScreen(viewModel: ChatViewModel) {
                                         )
                                     )
                                 },
+                                onAddExisting = { showDocumentPicker = true },
                                 isWebSearchEnabled = isWebSearchEnabled,
                                 onToggleWebSearch = { viewModel.toggleWebSearch() },
                                 isThinkingEnabled = generationSettings.enableThinking,
-                                onToggleThinking = { viewModel.toggleThinking() }
+                                onToggleThinking = { viewModel.toggleThinking() },
+                                attachedDocuments = attachedDocuments,
+                                onDetachDocument = viewModel::detachDocument
                             )
                         }
                     }
@@ -950,27 +1021,17 @@ fun MessageBubble(message: ChatMessage, isLastMessage: Boolean = false, onRegene
                     ),
                     border = if (isUser) null else BorderStroke(1.dp, Color.Gray.copy(alpha = 0.1f))
                 ) {
-                    // Plain text during generation avoids expensive markdown re-parse on every token
-                    if (message.isGenerating) {
-                        Text(
-                            text = message.text,
-                            modifier = Modifier.padding(12.dp),
-                            style = MaterialTheme.typography.bodyLarge.copy(
+                    // Format live as tokens arrive so markdown renders immediately,
+                    // instead of staying plain text until generation completes.
+                    SelectionContainer {
+                        Material3RichText(
+                            modifier = Modifier.padding(12.dp)
+                        ) {
+                            ProvideTextStyle(MaterialTheme.typography.bodyLarge.copy(
                                 color = if (isUser) Color.White else MaterialTheme.colorScheme.onSurface,
                                 lineHeight = 22.sp
-                            )
-                        )
-                    } else {
-                        SelectionContainer {
-                            Material3RichText(
-                                modifier = Modifier.padding(12.dp)
-                            ) {
-                                ProvideTextStyle(MaterialTheme.typography.bodyLarge.copy(
-                                    color = if (isUser) Color.White else MaterialTheme.colorScheme.onSurface,
-                                    lineHeight = 22.sp
-                                )) {
-                                    Markdown(content = message.text)
-                                }
+                            )) {
+                                Markdown(content = message.text)
                             }
                         }
                     }
@@ -1070,10 +1131,13 @@ fun MessageInput(
     onStopGeneration: () -> Unit,
     isGenerating: Boolean,
     onAttach: () -> Unit,
+    onAddExisting: () -> Unit = {},
     isWebSearchEnabled: Boolean,
     onToggleWebSearch: () -> Unit,
     isThinkingEnabled: Boolean,
-    onToggleThinking: () -> Unit
+    onToggleThinking: () -> Unit,
+    attachedDocuments: List<IngestedDocument> = emptyList(),
+    onDetachDocument: (Long) -> Unit = {}
 ) {
     var textState by remember { mutableStateOf(TextFieldValue("")) }
 
@@ -1082,6 +1146,10 @@ fun MessageInput(
             .fillMaxWidth()
             .padding(16.dp)
     ) {
+        if (attachedDocuments.isNotEmpty()) {
+            AttachmentStrip(documents = attachedDocuments, onDetach = onDetachDocument)
+            Spacer(modifier = Modifier.height(8.dp))
+        }
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(24.dp),
@@ -1123,6 +1191,14 @@ fun MessageInput(
                             onClick = {
                                 optionsExpanded = false
                                 onAttach()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Add from documents") },
+                            leadingIcon = { Icon(Icons.Outlined.Description, contentDescription = null, tint = AbbasBlue) },
+                            onClick = {
+                                optionsExpanded = false
+                                onAddExisting()
                             }
                         )
                         DropdownMenuItem(

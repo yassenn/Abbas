@@ -37,10 +37,11 @@ class RagPipelineTest {
 
         val uri = Uri.fromFile(file)
 
-        val docId = knowledgeRepository.addDocument(uri)
-        assertTrue("Document ID should be positive", docId > 0)
+        val sessionId = "test-session-rag"
+        val doc = knowledgeRepository.addDocument(uri, sessionId)
+        assertTrue("Document ID should be positive", doc.docId > 0)
 
-        val chunks = knowledgeRepository.search("capital of Alalistan", topK = 3)
+        val chunks = knowledgeRepository.search("capital of Alalistan", topK = 3, sessionId = sessionId)
         assertTrue("Should retrieve at least one chunk", chunks.isNotEmpty())
 
         val found = chunks.any { it.contains("zorblax", ignoreCase = true) }

@@ -4,13 +4,15 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import ai.abbas.app.data.MessageEntity
 import ai.abbas.app.data.ChatSessionEntity
 import net.sqlcipher.database.SupportFactory
 import net.sqlcipher.database.SQLiteDatabase
 import java.io.File
 
-@Database(entities = [DocumentEntity::class, ChunkEntity::class, MessageEntity::class, ChatSessionEntity::class], version = 2, exportSchema = false)
+@Database(entities = [DocumentEntity::class, ChunkEntity::class, MessageEntity::class, ChatSessionEntity::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun knowledgeDao(): KnowledgeDao
 
@@ -21,6 +23,18 @@ abstract class AppDatabase : RoomDatabase() {
 
         /** Database file name (also used as the Room DB name). */
         private const val DB_NAME = "knowledge_database"
+
+        /**
+         * v2 → v3: documents gained an owning [DocumentEntity.sessionId] so their chunks
+         * are only retrievable inside the chat that attached them. Existing documents are
+         * left with a null sessionId (unattached legacy rows) rather than being deleted.
+         */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE documents ADD COLUMN sessionId TEXT")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_documents_sessionId ON documents(sessionId)")
+            }
+        }
 
         /**
          * Ensures the on-disk DB is one SQLCipher can open with [passphrase].
@@ -79,6 +93,7 @@ abstract class AppDatabase : RoomDatabase() {
                     DB_NAME
                 )
                     .openHelperFactory(factory)
+                    .addMigrations(MIGRATION_2_3)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

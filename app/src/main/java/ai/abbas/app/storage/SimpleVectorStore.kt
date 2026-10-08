@@ -49,11 +49,33 @@ class SimpleVectorStore(private val context: Context, private val vectorDim: Int
         saveToDisk()
     }
 
-    /** Search top-k similar vectors to query vector using dot product (assuming normalized vectors) */
-    fun search(query: FloatArray, k: Int): List<Long> {
+    /** Add many vectors at once, persisting only once at the end. */
+    fun addAll(entries: List<Pair<Long, FloatArray>>) {
+        if (entries.isEmpty()) return
+        for ((chunkId, vector) in entries) {
+            require(vector.size == vectorDim) { "Vector dimension mismatch. Expected $vectorDim, got ${vector.size}" }
+            vectors.add(vector.clone())
+            chunkIds.add(chunkId)
+        }
+        saveToDisk()
+    }
+
+    /** The stored embedding for a chunk id, or null if it is not indexed. */
+    fun getVector(chunkId: Long): FloatArray? {
+        val idx = chunkIds.indexOf(chunkId)
+        return if (idx >= 0) vectors[idx].clone() else null
+    }
+
+    /**
+     * Search top-k similar vectors to query vector using dot product (assuming normalized vectors).
+     * When [allowedChunkIds] is non-null only those chunk ids are scored, which is how a chat
+     * restricts retrieval to its own documents.
+     */
+    fun search(query: FloatArray, k: Int, allowedChunkIds: Set<Long>? = null): List<Long> {
         if (vectors.isEmpty()) return emptyList()
         require(query.size == vectorDim) { "Query vector dimension mismatch" }
-        val scored = chunkIds.mapIndexed { idx, id ->
+        val scored = chunkIds.mapIndexedNotNull { idx, id ->
+            if (allowedChunkIds != null && id !in allowedChunkIds) return@mapIndexedNotNull null
             val score = dotProduct(vectors[idx], query)
             Pair(id, score)
         }
@@ -67,6 +89,17 @@ class SimpleVectorStore(private val context: Context, private val vectorDim: Int
         vectors.clear()
         chunkIds.clear()
         deleteFiles()
+    }
+
+    /** Drop the vectors for the given chunk ids (e.g. when a document is deleted). */
+    fun removeChunks(ids: Set<Long>) {
+        if (ids.isEmpty()) return
+        val keep = chunkIds.indices.filter { chunkIds[it] !in ids }
+        val keptVectors = keep.map { vectors[it] }
+        val keptIds = keep.map { chunkIds[it] }
+        vectors.clear(); vectors.addAll(keptVectors)
+        chunkIds.clear(); chunkIds.addAll(keptIds)
+        if (vectors.isEmpty()) deleteFiles() else saveToDisk()
     }
 
     /** Number of vectors stored */

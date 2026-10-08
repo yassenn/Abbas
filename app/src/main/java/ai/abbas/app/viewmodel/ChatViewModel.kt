@@ -12,11 +12,13 @@ import ai.abbas.app.data.ChatSessionEntity
 import ai.abbas.app.data.availableModels
 import ai.abbas.app.data.ModelConfig
 import ai.abbas.app.data.validateCustomModel
+import ai.abbas.app.data.DocumentWithChunkCount
 import ai.abbas.app.data.GenerationSettings
 import ai.abbas.app.data.PaymentConfig
 import ai.abbas.app.data.StripePaymentConfig
 import ai.abbas.app.data.PayPalPaymentConfig
 import ai.abbas.app.data.AppDatabase
+import ai.abbas.app.repository.IngestedDocument
 import ai.abbas.app.repository.KnowledgeRepository
 import ai.abbas.app.repository.WebSearchRepository
 import kotlinx.coroutines.Job
@@ -157,6 +159,78 @@ class ChatViewModel(
 
     private val _currentSessionId = MutableStateFlow<String?>(null)
     val currentSessionId: StateFlow<String?> = _currentSessionId.asStateFlow()
+
+    /** Knowledge-base documents (newest first) with their chunk counts. */
+    val documents: StateFlow<List<DocumentWithChunkCount>> = knowledgeRepository.documents().stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        emptyList()
+    )
+
+    fun deleteDocument(docId: Long) {
+        viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
+            knowledgeRepository.deleteDocument(docId)
+        }
+    }
+
+    /**
+     * Documents attached to the current chat, newest first. Backs the attachment chips
+     * shown above the input box. Derived from the database so the strip always reflects
+     * what this chat actually owns (and empty for a brand-new chat).
+     */
+    val attachedDocuments: StateFlow<List<IngestedDocument>> = combine(
+        _currentSessionId,
+        documents
+    ) { sessionId, docs ->
+        if (sessionId == null) emptyList()
+        else docs.filter { it.sessionId == sessionId }
+            .map { IngestedDocument(it.id, it.title, it.chunkCount) }
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        emptyList()
+    )
+
+    /**
+     * Removes a document from this chat (chip dismiss button). The document is scoped to
+     * its chat, so detaching deletes it from the knowledge base and drops its vectors.
+     */
+    fun detachDocument(docId: Long) {
+        deleteDocument(docId)
+    }
+
+    /**
+     * Returns the current session id, creating and persisting a fresh session (titled
+     * [initialTitle]) when the user is in a new chat. Used by attachment actions so a
+     * document always has a chat to belong to.
+     */
+    private fun ensureSession(initialTitle: String = "New chat"): String {
+        _currentSessionId.value?.let { return it }
+        val newId = UUID.randomUUID().toString()
+        _currentSessionId.value = newId
+        viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
+            messageDao.insertSession(
+                ChatSessionEntity(id = newId, title = initialTitle, lastMessage = "")
+            )
+        }
+        loadMessages(newId)
+        return newId
+    }
+
+    /**
+     * Copy documents the user hand-picked from the Documents screen into the current chat.
+     * Each is duplicated so this chat gets its own retrievable copy, leaving the source
+     * chat untouched. A session is created on demand if the user is starting fresh.
+     */
+    fun attachExistingDocuments(docIds: List<Long>) {
+        if (docIds.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
+            val sessionId = ensureSession()
+            docIds.forEach { docId ->
+                knowledgeRepository.attachExistingDocument(docId, sessionId)
+            }
+        }
+    }
 
     private val llmHistory = mutableListOf<LlamaEngineManager.ChatMessage>()
     private var messagesJob: Job? = null
@@ -625,6 +699,9 @@ class ChatViewModel(
 
     fun deleteSession(sessionId: String) {
         viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
+            // Documents are scoped to the chat that attached them — drop them (and their
+            // vectors) along with the session so nothing is left orphaned in the store.
+            knowledgeRepository.deleteDocumentsForSession(sessionId)
             messageDao.deleteMessagesForSession(sessionId)
             messageDao.deleteSession(sessionId)
             if (_currentSessionId.value == sessionId) {
@@ -668,18 +745,7 @@ class ChatViewModel(
     fun sendMessage(text: String) {
         if (text.isBlank() || _uiState.value != ChatUiState.Ready) return
 
-        val sessionId = _currentSessionId.value ?: UUID.randomUUID().toString().also { newId ->
-            _currentSessionId.value = newId
-            val newSession = ChatSessionEntity(
-                id = newId,
-                title = if (text.length > 30) text.take(27) + "..." else text,
-                lastMessage = text
-            )
-            viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
-                messageDao.insertSession(newSession)
-            }
-            loadMessages(newId)
-        }
+        val sessionId = ensureSession(if (text.length > 30) text.take(27) + "..." else text)
 
         val userMessageId = UUID.randomUUID().toString()
         val botMessageId = UUID.randomUUID().toString()
@@ -739,7 +805,7 @@ class ChatViewModel(
                 }
             }
 
-            val contextChunks = knowledgeRepository.search(text, topK = 3)
+            val contextChunks = knowledgeRepository.search(text, topK = 3, sessionId = sessionId)
             val localContext = if (contextChunks.isNotEmpty()) {
                 contextChunks.joinToString(separator = "\n") { it }
             } else {
@@ -788,11 +854,12 @@ class ChatViewModel(
 
     fun ingestDocument(uri: Uri) {
         viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
-            if (BuildConfig.DEBUG) android.util.Log.d("RAG", "Starting ingestion for $uri")
-            val docId = knowledgeRepository.addDocument(uri)
-            if (BuildConfig.DEBUG) android.util.Log.d("RAG", "Ingested document id=$docId")
-            // Optionally emit a success event
-            _errors.emit("Document ingested (id=$docId)")
+            // Attaching a file starts (or joins) a chat so the document has an owner and
+            // is only ever retrieved inside that chat.
+            val sessionId = ensureSession()
+            if (BuildConfig.DEBUG) android.util.Log.d("RAG", "Starting ingestion for $uri into session $sessionId")
+            val result = knowledgeRepository.addDocument(uri, sessionId)
+            if (BuildConfig.DEBUG) android.util.Log.d("RAG", "Ingested document id=${result.docId}")
         }
     }
 
@@ -865,7 +932,9 @@ class ChatViewModel(
 
                         _generatingMessage.update { message ->
                             message?.copy(
-                                text = split.text,
+                                // trimStart drops leading newlines/space from the stream so the
+                                // first token doesn't render under a blank gap in the bubble.
+                                text = split.text.trimStart(),
                                 thought = split.thought
                             )
                         }
@@ -876,7 +945,7 @@ class ChatViewModel(
                 // Final update to ensure all tokens are rendered and the trace/answer
                 // split reflects the complete output.
                 val finalSplit = splitThinking(fullContent)
-                _generatingMessage.update { it?.copy(text = finalSplit.text, thought = finalSplit.thought) }
+                _generatingMessage.update { it?.copy(text = finalSplit.text.trimStart(), thought = finalSplit.thought) }
 
                 val endTimeMs = System.currentTimeMillis()
                 val totalTimeMs = endTimeMs - startTimeMs
@@ -953,9 +1022,10 @@ class ChatViewModel(
         messagesJob?.cancel()
     }
 
-    /** Delete every chat session and its messages, then start a fresh chat. */
+    /** Delete every chat session, its messages and its attached documents, then start fresh. */
     fun clearAllChats() {
         viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
+            knowledgeRepository.deleteAllDocuments()
             _sessions.value.forEach {
                 messageDao.deleteMessagesForSession(it.id)
                 messageDao.deleteSession(it.id)

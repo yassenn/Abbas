@@ -45,12 +45,13 @@ class ChunkOverlapBugTest {
         file.writeText(words)
 
         val uri = Uri.fromFile(file)
-        val docId = knowledgeRepository.addDocument(uri)
-        assertTrue("Document ID should be positive", docId > 0)
+        val sessionId = "test-session-chunk-overlap"
+        val doc = knowledgeRepository.addDocument(uri, sessionId)
+        assertTrue("Document ID should be positive", doc.docId > 0)
 
         // With chunkSize≈200, overlap≈20, we expect roughly 600/(200-20) ≈ 3-4 chunks.
         // Buggy code gives ~600/20 = ~30 chunks.
-        val chunks = knowledgeRepository.search("word300 word301 word302", topK = 30)
+        val chunks = knowledgeRepository.search("word300 word301 word302", topK = 30, sessionId = sessionId)
         assertTrue("Should have at least 1 chunk", chunks.isNotEmpty())
 
         // A chunk created with proper overlap should NOT have the same content

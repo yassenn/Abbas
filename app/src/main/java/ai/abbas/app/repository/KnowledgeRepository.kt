@@ -22,6 +22,9 @@ import java.nio.channels.FileChannel
 import kotlin.math.min
 import kotlin.system.measureTimeMillis
 
+/** Result of ingesting a document: its row id, display title and chunk count. */
+data class IngestedDocument(val docId: Long, val title: String, val chunkCount: Int)
+
 /**
  * Repository that manages the knowledge base: ingestion, storage, and retrieval.
  * All heavy work is offloaded to Dispatchers.Default via coroutines.
@@ -88,10 +91,11 @@ class KnowledgeRepository private constructor(
     }
 
     /**
-     * Add a document from a URI (content:// or file://). Returns the document ID.
+     * Add a document from a URI (content:// or file://) to the chat identified by
+     * [sessionId]. Returns the ingested document (id, title, chunk count).
      * The operation is performed off‑main thread.
      */
-    suspend fun addDocument(uri: Uri): Long = withContext(Dispatchers.Default) {
+    suspend fun addDocument(uri: Uri, sessionId: String?): IngestedDocument = withContext(Dispatchers.Default) {
         val displayName = getDisplayName(uri)
         val mimeType = context.contentResolver.getType(uri)
         val rawText = DocumentTextExtractor.extract(context, uri, displayName, mimeType)
@@ -100,7 +104,8 @@ class KnowledgeRepository private constructor(
         }
         val document = DocumentEntity(
             title = displayName,
-            contentUri = uri.toString()
+            contentUri = uri.toString(),
+            sessionId = sessionId
         )
         val docId = dao.insertDocument(document)
 
@@ -132,19 +137,82 @@ class KnowledgeRepository private constructor(
 
         // Optionally persist vectors to disk (omitted for brevity)
 
-        return@withContext docId
+        return@withContext IngestedDocument(docId, displayName, chunks.size)
+    }
+
+    /** Documents currently in the knowledge base, newest first, with chunk counts. */
+    fun documents(): kotlinx.coroutines.flow.Flow<List<DocumentWithChunkCount>> =
+        dao.getDocumentsWithChunkCounts()
+
+    /** Remove a document, its chunks (cascade) and its vectors from the knowledge base. */
+    suspend fun deleteDocument(docId: Long) = withContext(Dispatchers.Default) {
+        vectorStore.removeChunks(dao.getChunkIdsForDoc(docId).toSet())
+        dao.deleteDocumentById(docId)
+    }
+
+    /** Remove every document owned by a chat (used when the chat itself is deleted). */
+    suspend fun deleteDocumentsForSession(sessionId: String) = withContext(Dispatchers.Default) {
+        vectorStore.removeChunks(dao.getChunkIdsForSession(sessionId).toSet())
+        dao.deleteDocumentsForSession(sessionId)
+    }
+
+    /** Remove every document in the knowledge base (used by "clear all chats"). */
+    suspend fun deleteAllDocuments() = withContext(Dispatchers.Default) {
+        vectorStore.clear()
+        dao.deleteAllDocuments()
     }
 
     /**
-     * Search the knowledge base for a query and return top‑k chunk texts.
+     * Copy an existing document into [sessionId] so it can be used in another chat.
+     *
+     * The document, its chunks and their embeddings are duplicated (embeddings are copied
+     * from the store rather than recomputed; any chunk whose vector is missing is re-embedded).
+     * Returns null if the source document no longer exists or has no readable chunks.
      */
-    suspend fun search(query: String, topK: Int = 3): List<String> = withContext(Dispatchers.Default) {
-        val queryVector = embedText(query)
-        val topChunkIds = vectorStore.search(queryVector, topK)
-        if (topChunkIds.isEmpty()) return@withContext emptyList()
-        val chunkEntities = dao.getChunksByIds(topChunkIds)
-        return@withContext chunkEntities.map { it.text }
-    }
+    suspend fun attachExistingDocument(sourceDocId: Long, sessionId: String): IngestedDocument? =
+        withContext(Dispatchers.Default) {
+            val source = dao.getDocument(sourceDocId) ?: return@withContext null
+            val sourceChunks = dao.getChunksForDocOnce(sourceDocId)
+            if (sourceChunks.isEmpty()) return@withContext null
+
+            val newDocId = dao.insertDocument(
+                DocumentEntity(
+                    title = source.title,
+                    contentUri = source.contentUri,
+                    sessionId = sessionId
+                )
+            )
+            val copies = mutableListOf<Pair<Long, FloatArray>>()
+            for (chunk in sourceChunks) {
+                val newChunkId = dao.insertChunk(
+                    ChunkEntity(docId = newDocId, ordinal = chunk.ordinal, text = chunk.text)
+                )
+                val vector = vectorStore.getVector(chunk.id) ?: embedText(chunk.text)
+                copies.add(newChunkId to vector)
+            }
+            vectorStore.addAll(copies)
+
+            IngestedDocument(newDocId, source.title, sourceChunks.size)
+        }
+
+    /**
+     * Search the knowledge base for a query and return top‑k chunk texts.
+     *
+     * Retrieval is scoped to [sessionId]: only chunks of documents attached to that chat are
+     * eligible, so a document never influences a chat it was not attached to. A null session
+     * (no chat yet) yields no context.
+     */
+    suspend fun search(query: String, topK: Int = 3, sessionId: String?): List<String> =
+        withContext(Dispatchers.Default) {
+            if (sessionId == null) return@withContext emptyList()
+            val allowedChunkIds = dao.getChunkIdsForSession(sessionId).toSet()
+            if (allowedChunkIds.isEmpty()) return@withContext emptyList()
+            val queryVector = embedText(query)
+            val topChunkIds = vectorStore.search(queryVector, topK, allowedChunkIds)
+            if (topChunkIds.isEmpty()) return@withContext emptyList()
+            val chunkEntities = dao.getChunksByIds(topChunkIds)
+            return@withContext chunkEntities.map { it.text }
+        }
 
     private fun embedText(text: String): FloatArray {
         if (tfliteInterpreter == null || inputTensorBuffer == null || outputTensorBuffer == null) {
