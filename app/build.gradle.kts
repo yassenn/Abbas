@@ -13,8 +13,8 @@ android {
         applicationId = "ai.abbas.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 192
-        versionName = "1.6.31-cpu"
+        versionCode = 193
+        versionName = "1.6.32-cpu"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -22,9 +22,14 @@ android {
             useSupportLibrary = true
         }
 
-        // CRITICAL FIX: Ensure we only compile/include for 64-bit architectures
+        // arm64-v8a is the shipping ABI. Pass -PincludeX86=true to ALSO build an
+        // x86_64 slice, needed to run chat/inference on the desktop emulator
+        // (its ARM translation aborts inside llama.cpp's compute graph).
         ndk {
             abiFilters.add("arm64-v8a")
+            if (project.findProperty("includeX86")?.toString() == "true") {
+                abiFilters.add("x86_64")
+            }
         }
     }
 

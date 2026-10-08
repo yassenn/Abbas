@@ -12,6 +12,11 @@ android {
 
         ndk {
             abiFilters += listOf("arm64-v8a")
+            // Build an x86_64 slice too when requested, so the app can run on an
+            // x86_64 emulator (arm64 code can't infer via ARM translation).
+            if (project.findProperty("includeX86")?.toString() == "true") {
+                abiFilters += "x86_64"
+            }
         }
         externalNativeBuild {
             cmake {
