@@ -56,14 +56,11 @@ private enum class AppTab { CHAT, HUB, DOCS, PROMPTS }
 @Composable
 fun ChatScreen(viewModel: ChatViewModel) {
     val uiState by viewModel.uiState.collectAsState()
-    val messages by viewModel.messages.collectAsState()
     val sessions by viewModel.sessions.collectAsState()
     val currentSessionId by viewModel.currentSessionId.collectAsState()
     val currentModel by viewModel.currentModel.collectAsState()
     val isWebSearchEnabled by viewModel.isWebSearchEnabled.collectAsState()
     val generationSettings by viewModel.generationSettings.collectAsState()
-    val downloadStates by viewModel.downloadStates.collectAsState()
-    val downloadedModelIds by viewModel.downloadedModelIds.collectAsState()
     val documents by viewModel.documents.collectAsState()
     val attachedDocuments by viewModel.attachedDocuments.collectAsState()
     val systemPromptSettings by viewModel.systemPromptSettings.collectAsState()
@@ -190,11 +187,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                         scope.launch { drawerState.close() }
                     },
                     icon = {
-                        BadgedBox(
-                            badge = {
-                                if (downloadStates.isNotEmpty()) Badge { Text("${downloadStates.size}") }
-                            }
-                        ) {
+                        BadgedBox(badge = { DownloadBadge(viewModel) }) {
                             Icon(
                                 if (currentTab == AppTab.HUB) Icons.Filled.CloudDownload else Icons.Outlined.CloudDownload,
                                 contentDescription = null
@@ -274,7 +267,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 LazyColumn(
                     modifier = Modifier.weight(1f)
                 ) {
-                    items(sessions) { session ->
+                    items(sessions, key = { it.id }) { session ->
                         val isSelected = session.id == currentSessionId
                         Box(modifier = Modifier.fillMaxWidth().padding(NavigationDrawerItemDefaults.ItemPadding)) {
                             NavigationDrawerItem(
@@ -556,6 +549,9 @@ fun ChatScreen(viewModel: ChatViewModel) {
                         }
                         is ChatUiState.SelectingModel -> {
                             val state = uiState as ChatUiState.SelectingModel
+                            // Scoped here so download progress ticks don't
+                            // recompose the drawer/top bar.
+                            val downloadedModelIds by viewModel.downloadedModelIds.collectAsState()
                             ModelLoadScreen(
                                 models = state.models.filter { downloadedModelIds.contains(it.id) },
                                 onInitialize = viewModel::initModel,
@@ -721,6 +717,11 @@ fun ChatScreen(viewModel: ChatViewModel) {
                             }
                         }
                         is ChatUiState.Ready -> {
+                            // Collected here, not at the top of ChatScreen: the
+                            // message list changes ~10x/second while a reply
+                            // streams, and at the top it recomposed the drawer,
+                            // top bar and composer along with it.
+                            val messages by viewModel.messages.collectAsState()
                             MessageList(
                                 messages = messages,
                                 onRegenerate = { viewModel.regenerate() },
@@ -757,6 +758,17 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 // App version is shown in the navigation drawer footer.
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DownloadBadge(viewModel: ChatViewModel) {
+    // Collected locally: download progress updates several times a second and
+    // should only repaint this badge, not the whole screen.
+    val downloadStates by viewModel.downloadStates.collectAsState()
+    if (downloadStates.isNotEmpty()) {
+        Badge { Text("${downloadStates.size}") }
     }
 }
 
@@ -928,35 +940,27 @@ fun ModelLoadScreen(
 @Composable
 fun MessageList(messages: List<ChatMessage>, onRegenerate: () -> Unit, modifier: Modifier = Modifier) {
     val listState = rememberLazyListState()
+    val lastMessage = messages.lastOrNull()
+    val lastMessageId = lastMessage?.id
 
-    // Track if the user is at the bottom to determine if we should auto-scroll
+    // True while the newest message is fully visible. Reading this state inside
+    // the effect (not during composition) matters: reading listState values in
+    // composition makes the whole list recompose on every scroll frame, which
+    // is what made scrolling stutter.
     val isAtBottom by remember {
         derivedStateOf {
-            val lastVisibleItem = listState.layoutInfo.visibleItemsInfo.lastOrNull()
-            if (lastVisibleItem == null) true
-            else {
-                val isLastItemVisible = lastVisibleItem.index == listState.layoutInfo.totalItemsCount - 1
-                val isAtVeryBottom = lastVisibleItem.offset + lastVisibleItem.size <= listState.layoutInfo.viewportEndOffset
-                isLastItemVisible && isAtVeryBottom
-            }
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull() ?: return@derivedStateOf true
+            lastVisible.index == info.totalItemsCount - 1 &&
+                lastVisible.offset + lastVisible.size <= info.viewportEndOffset + 8
         }
     }
 
-    // Auto-scroll logic: only trigger if we were already at the bottom and not manually scrolling
-    val shouldAutoScroll = isAtBottom && !listState.isScrollInProgress
-
-    // Auto-scroll when new messages arrive
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty() && shouldAutoScroll) {
-            listState.animateScrollToItem(messages.size - 1)
-        }
-    }
-
-    // Also scroll when the last message text changes (streaming)
-    val lastMessageText = messages.lastOrNull()?.text ?: ""
-    LaunchedEffect(lastMessageText) {
-        if (messages.lastOrNull()?.isGenerating == true && shouldAutoScroll) {
-            listState.scrollToItem(messages.size - 1)
+    // Follow the answer while it streams, but only when the user hasn't
+    // scrolled away to read something.
+    LaunchedEffect(lastMessageId, lastMessage?.text, messages.size) {
+        if (messages.isNotEmpty() && isAtBottom) {
+            listState.scrollToItem(messages.lastIndex)
         }
     }
 
@@ -964,14 +968,17 @@ fun MessageList(messages: List<ChatMessage>, onRegenerate: () -> Unit, modifier:
         state = listState,
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        reverseLayout = false
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        items(messages, key = { it.id }) { message ->
-            val isLastMessage = messages.lastOrNull()?.id == message.id
+        items(
+            items = messages,
+            key = { it.id },
+            // Separate reuse pools: user rows are cheap, bot rows render markdown.
+            contentType = { if (it.isUser) "user" else "assistant" }
+        ) { message ->
             MessageBubble(
                 message = message,
-                isLastMessage = isLastMessage,
+                isLastMessage = message.id == lastMessageId,
                 onRegenerate = onRegenerate
             )
         }

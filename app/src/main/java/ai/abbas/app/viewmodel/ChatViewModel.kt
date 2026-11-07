@@ -331,8 +331,13 @@ class ChatViewModel(
     init {
         // Load custom models
         val customJson = prefs.getString(customModelsKey, "[]")
-        val type = object : com.google.gson.reflect.TypeToken<List<ModelConfig>>() {}.type
-        val loadedCustom: List<ModelConfig> = com.google.gson.Gson().fromJson(customJson, type)
+        // Array type, not an anonymous TypeToken: R8 strips the generic
+        // signature of anonymous TypeToken subclasses, so Gson throws
+        // "TypeToken must be created with a type argument" at startup.
+        val loadedCustom: List<ModelConfig> = com.google.gson.Gson()
+            .fromJson(customJson, Array<ModelConfig>::class.java)
+            ?.toList()
+            .orEmpty()
         // Drop any persisted custom model that fails validation (unsafe id /
         // filename / non-https URL) — custom models are untrusted input.
         _customModels.value = loadedCustom.filter { validateCustomModel(it) == null }
