@@ -10,6 +10,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED true)
 set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS}"   CACHE STRING "" FORCE)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}" CACHE STRING "" FORCE)
 
+# Android 15+ devices can use 16 KB memory pages, and Play refuses APKs whose
+# native libraries declare smaller PT_LOAD alignment ("app is not 16 KB
+# compatible"). Link every shared object here — llama, ggml, the JNI shim and
+# the OpenMP runtime pulled in by the NDK — with 16 KB segment alignment.
+if(DEFINED ANDROID_ABI)
+    add_link_options("-Wl,-z,max-page-size=16384")
+endif()
+
 # --------------------------------------------------------------------------
 # Platform-specific settings
 # --------------------------------------------------------------------------

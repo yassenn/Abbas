@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import ai.abbas.app.data.MessageEntity
 import ai.abbas.app.data.ChatSessionEntity
-import net.sqlcipher.database.SupportFactory
-import net.sqlcipher.database.SQLiteDatabase
+import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
+import net.zetetic.database.sqlcipher.SQLiteDatabase
 import java.io.File
 
 @Database(entities = [DocumentEntity::class, ChunkEntity::class, MessageEntity::class, ChatSessionEntity::class], version = 3, exportSchema = false)
@@ -80,13 +80,15 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
-                // Load SQLCipher native library (required before any DB operations)
-                SQLiteDatabase.loadLibs(context)
+                // Load the SQLCipher native library (required before any DB operation).
+                // sqlcipher-android dropped SQLiteDatabase.loadLibs(); it ships a
+                // plain libsqlcipher.so instead.
+                System.loadLibrary("sqlcipher")
 
                 val passphrase = SecurityUtils.getDatabasePassphrase(context)
                 migratePlaintextToEncrypted(context, passphrase)
 
-                val factory = SupportFactory(passphrase)
+                val factory = SupportOpenHelperFactory(passphrase)
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,

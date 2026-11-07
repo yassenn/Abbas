@@ -8,13 +8,14 @@ plugins {
 android {
     namespace = "ai.abbas.app"
     compileSdk = 34
+    ndkVersion = "27.1.12297006"
 
     defaultConfig {
         applicationId = "ai.abbas.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 195
-        versionName = "1.6.34-cpu"
+        versionCode = 196
+        versionName = "1.6.35-cpu"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -91,21 +92,30 @@ dependencies {
     implementation("androidx.room:room-ktx:$room_version")
     kapt("androidx.room:room-compiler:$room_version")
 
-    // Security & Encryption
+    // Security & Encryption. sqlcipher-android is the maintained SQLCipher
+    // binding; the retired android-database-sqlcipher bundles 4 KB-aligned
+    // .so files, which Play rejects on 16 KB-page devices.
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
-    implementation("net.zetetic:android-database-sqlcipher:4.5.3")
+    implementation("net.zetetic:sqlcipher-android:4.6.1")
     implementation("androidx.sqlite:sqlite-ktx:2.4.0")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 
-    // TensorFlow Lite for embeddings
-    implementation("org.tensorflow:tensorflow-lite:2.16.1")
-    // Optional GPU delegate
-    implementation("org.tensorflow:tensorflow-lite-gpu:2.16.1")
-    // Optional support library for metadata etc.
-    implementation("org.tensorflow:tensorflow-lite-support:0.4.0")
+    // LiteRT (formerly TensorFlow Lite) for embeddings. 1.4.2 ships 16 KB-page
+    // aligned native libs; org.tensorflow:tensorflow-lite:2.16.1 does not, and
+    // Play rejects the whole APK for it. The GPU delegate is unused, so the
+    // GPU artifact is gone too.
+    implementation("com.google.ai.edge.litert:litert:1.4.2")
+    // TensorBuffer/FileUtil helpers only — pure JVM code. Exclude the old API
+    // artifact so org.tensorflow.lite.Interpreter isn't defined twice.
+    implementation("org.tensorflow:tensorflow-lite-support:0.4.0") {
+        // Its runtime belongs to LiteRT now; pulling the old interpreter in
+        // duplicates org.tensorflow.lite.* across the two artifacts.
+        exclude(group = "org.tensorflow", module = "tensorflow-lite")
+        exclude(group = "org.tensorflow", module = "tensorflow-lite-api")
+    }
 
     // Networking for model download
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
