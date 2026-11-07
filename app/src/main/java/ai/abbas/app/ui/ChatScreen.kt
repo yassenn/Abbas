@@ -50,7 +50,7 @@ import kotlinx.coroutines.launch
 
 const val APP_VERSION = "v${BuildConfig.VERSION_NAME}"
 
-private enum class AppTab { CHAT, HUB, DOCS }
+private enum class AppTab { CHAT, HUB, DOCS, PROMPTS }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,6 +66,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
     val downloadedModelIds by viewModel.downloadedModelIds.collectAsState()
     val documents by viewModel.documents.collectAsState()
     val attachedDocuments by viewModel.attachedDocuments.collectAsState()
+    val systemPromptSettings by viewModel.systemPromptSettings.collectAsState()
 
     var currentTab by rememberSaveable { mutableStateOf(AppTab.CHAT) }
     var showAddCustomModel by remember { mutableStateOf(false) }
@@ -218,6 +219,27 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     icon = {
                         Icon(
                             if (currentTab == AppTab.DOCS) Icons.Filled.Description else Icons.Outlined.Description,
+                            contentDescription = null
+                        )
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                    colors = NavigationDrawerItemDefaults.colors(
+                        selectedContainerColor = AbbasBlue.copy(alpha = 0.1f),
+                        selectedTextColor = AbbasBlue,
+                        selectedIconColor = AbbasBlue
+                    )
+                )
+
+                NavigationDrawerItem(
+                    label = { Text("System Prompts") },
+                    selected = currentTab == AppTab.PROMPTS,
+                    onClick = {
+                        currentTab = AppTab.PROMPTS
+                        scope.launch { drawerState.close() }
+                    },
+                    icon = {
+                        Icon(
+                            if (currentTab == AppTab.PROMPTS) Icons.Filled.Psychology else Icons.Outlined.Psychology,
                             contentDescription = null
                         )
                     },
@@ -426,6 +448,40 @@ fun ChatScreen(viewModel: ChatViewModel) {
                             containerColor = MaterialTheme.colorScheme.background
                         )
                     )
+                    currentTab == AppTab.PROMPTS -> CenterAlignedTopAppBar(
+                        title = {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    "System Prompts",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "Persona & tone",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.Gray
+                                )
+                            }
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                Icon(Icons.Outlined.Menu, contentDescription = "Menu")
+                            }
+                        },
+                        actions = {
+                            if (systemPromptSettings.isConfigured) {
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = "System prompt active",
+                                    tint = AbbasBlue,
+                                    modifier = Modifier.padding(end = 16.dp).size(20.dp)
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.background
+                        )
+                    )
                     else -> CenterAlignedTopAppBar(
                         title = {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -472,6 +528,14 @@ fun ChatScreen(viewModel: ChatViewModel) {
                         DocumentsScreen(
                             documents = documents,
                             onDelete = viewModel::deleteDocument
+                        )
+                    }
+                } else if (currentTab == AppTab.PROMPTS && uiState != ChatUiState.Donating) {
+                    Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+                        SystemPromptScreen(
+                            savedSettings = systemPromptSettings,
+                            onSave = viewModel::updateSystemPromptSettings,
+                            onReset = viewModel::resetSystemPromptSettings
                         )
                     }
                 } else {

@@ -14,6 +14,7 @@ import ai.abbas.app.data.ModelConfig
 import ai.abbas.app.data.validateCustomModel
 import ai.abbas.app.data.DocumentWithChunkCount
 import ai.abbas.app.data.GenerationSettings
+import ai.abbas.app.data.SystemPromptSettings
 import ai.abbas.app.data.PaymentConfig
 import ai.abbas.app.data.StripePaymentConfig
 import ai.abbas.app.data.PayPalPaymentConfig
@@ -118,6 +119,33 @@ class ChatViewModel(
             maxTokens = prefs.getInt("gen_max_tokens", 2048),
             seed = prefs.getInt("gen_seed", -1).takeIf { it >= 0 },
             enableThinking = prefs.getBoolean("gen_enable_thinking", true)
+        )
+    }
+
+    // System prompt: persona, form of speech and behavioural rules chosen in the
+    // System Prompt tab. Persisted as selections so the tab re-opens with the
+    // user's chips still highlighted.
+    private val _systemPromptSettings = MutableStateFlow(loadSystemPromptSettings())
+    val systemPromptSettings: StateFlow<SystemPromptSettings> = _systemPromptSettings.asStateFlow()
+
+    fun updateSystemPromptSettings(settings: SystemPromptSettings) {
+        _systemPromptSettings.value = settings
+        prefs.edit()
+            .putString("sys_custom_instructions", settings.customInstructions)
+            .putString("sys_persona_id", settings.personaId ?: "")
+            .putStringSet("sys_style_ids", settings.styleIds.toSet())
+            .putStringSet("sys_option_ids", settings.optionIds.toSet())
+            .apply()
+    }
+
+    fun resetSystemPromptSettings() = updateSystemPromptSettings(SystemPromptSettings())
+
+    private fun loadSystemPromptSettings(): SystemPromptSettings {
+        return SystemPromptSettings(
+            customInstructions = prefs.getString("sys_custom_instructions", "") ?: "",
+            personaId = prefs.getString("sys_persona_id", "")?.takeIf { it.isNotBlank() },
+            styleIds = prefs.getStringSet("sys_style_ids", emptySet())?.toSet() ?: emptySet(),
+            optionIds = prefs.getStringSet("sys_option_ids", emptySet())?.toSet() ?: emptySet()
         )
     }
 
@@ -904,7 +932,16 @@ class ChatViewModel(
                 // Retrieved context is passed as a system message instead of being
                 // glued into the user turn ("Context:...\nQuestion:...\nAnswer:"). The
                 // old wrapper bled scaffolding into replies and confused small models.
-                val systemContext = context.trim()
+                // The user's persona / tone rules come first so the retrieved context
+                // is read in the voice the user asked for.
+                val systemContext = buildString {
+                    val persona = _systemPromptSettings.value.buildPrompt()
+                    if (persona.isNotBlank()) {
+                        appendLine(persona)
+                        appendLine()
+                    }
+                    append(context.trim())
+                }.trim()
 
                 // Capture the current history to avoid concurrent modification issues.
                 // The current turn's RAW user message may already have been mirrored into
