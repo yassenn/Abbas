@@ -83,8 +83,12 @@ internal fun isCredibleSource(url: String): Boolean {
 object WebSearchRepository {
 
     private val client by lazy {
+        // Hard limits so a slow site can't stall the answer (pages are fetched in parallel).
         OkHttpClient.Builder()
             .followRedirects(true)
+            .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
+            .callTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
             .build()
     }
 

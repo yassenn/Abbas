@@ -127,7 +127,27 @@ fun AiHubScreen(
                 item { LegacyOutdatedCard() }
             }
 
-            items(models, key = { it.id }) { model ->
+            // Grouped by how well each model handles summaries, documents and instructions.
+            val tierOrder = listOf("HIGH", "MID", "LOW", null)
+            val grouped = models.groupBy { it.tier?.takeIf { t -> t in tierOrder } }
+            tierOrder.forEach { tier ->
+                val group = grouped[tier].orEmpty()
+                if (group.isEmpty()) return@forEach
+                item(key = "tier-$tier") {
+                    Text(
+                        when (tier) {
+                            "HIGH" -> "High performing · best summaries"
+                            "MID" -> "Mid · speed and quality balance"
+                            "LOW" -> "Low · fast but weak at summaries"
+                            else -> "Custom"
+                        },
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = AlalBlue,
+                        modifier = Modifier.padding(top = 12.dp, bottom = 2.dp)
+                    )
+                }
+            items(group, key = { it.id }) { model ->
                 AiHubModelCard(
                     model = model,
                     isDownloaded = downloadedIds.contains(model.id),
@@ -139,6 +159,7 @@ fun AiHubScreen(
                     onDelete = { viewModel.deleteModel(model) },
                     onBlocked = { ramBlockedModel = model }
                 )
+            }
             }
 
             item {
@@ -352,6 +373,10 @@ private fun AiHubModelCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.Gray
                     )
+                    model.note?.let {
+                        Spacer(Modifier.height(2.dp))
+                        Text(it, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                    }
                     if (!isCapable) {
                         Spacer(Modifier.height(4.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {

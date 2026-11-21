@@ -63,6 +63,16 @@ interface KnowledgeDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChunk(chunk: ChunkEntity): Long
 
+    @Insert
+    suspend fun insertChunks(chunks: List<ChunkEntity>)
+
+    /** Every chunk of the documents attached to a chat, with its document title. */
+    @Query(
+        "SELECT c.id AS id, c.docId AS docId, c.ordinal AS ordinal, c.text AS text, d.title AS title " +
+            "FROM chunks c JOIN documents d ON c.docId = d.id WHERE d.sessionId = :sessionId"
+    )
+    suspend fun getChunksForSession(sessionId: String): List<ChunkWithTitle>
+
     @Query("SELECT * FROM chunks WHERE id IN (:ids)")
     suspend fun getChunksByIds(ids: List<Long>): List<ChunkEntity>
 
@@ -70,3 +80,5 @@ interface KnowledgeDao {
     suspend fun deleteDocument(document: DocumentEntity)
 
 }
+
+data class ChunkWithTitle(val id: Long, val docId: Long, val ordinal: Int, val text: String, val title: String)

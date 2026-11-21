@@ -116,19 +116,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 
-    // LiteRT (formerly TensorFlow Lite) for embeddings. 1.4.2 ships 16 KB-page
-    // aligned native libs; org.tensorflow:tensorflow-lite:2.16.1 does not, and
-    // Play rejects the whole APK for it. The GPU delegate is unused, so the
-    // GPU artifact is gone too.
-    implementation("com.google.ai.edge.litert:litert:1.4.2")
-    // TensorBuffer/FileUtil helpers only — pure JVM code. Exclude the old API
-    // artifact so org.tensorflow.lite.Interpreter isn't defined twice.
-    implementation("org.tensorflow:tensorflow-lite-support:0.4.0") {
-        // Its runtime belongs to LiteRT now; pulling the old interpreter in
-        // duplicates org.tensorflow.lite.* across the two artifacts.
-        exclude(group = "org.tensorflow", module = "tensorflow-lite")
-        exclude(group = "org.tensorflow", module = "tensorflow-lite-api")
-    }
+    // (LiteRT / TensorFlow Lite removed: document search is BM25, no embedding model.)
 
     // Networking for model download
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
