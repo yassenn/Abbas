@@ -22,7 +22,7 @@
 -keep class androidx.savedstate.** { *; }
 
 # Gson reflected model classes (custom model catalogue, payment config).
--keep class ai.abbas.app.data.** { *; }
+-keep class ai.alal.app.data.** { *; }
 -keepclassmembers,allowobfuscation class * {
     @com.google.gson.annotations.SerializedName <fields>;
 }
@@ -37,4 +37,17 @@
 # PDFBox-Android (PDF text extraction)
 -keep class com.tom_roush.** { *; }
 -dontwarn com.tom_roush.**
--keep class ai.abbas.app.inference.DownloadWorker { *; }
+-keep class ai.alal.app.inference.DownloadWorker { *; }
+
+# JavaMail (IMAP email source): providers are loaded reflectively.
+-keep class javax.mail.** { *; }
+-keep class com.sun.mail.** { *; }
+-keep class javax.activation.** { *; }
+-keep class com.sun.activation.** { *; }
+-dontwarn java.awt.**
+-dontwarn java.beans.Beans
+-dontwarn javax.security.**
+-dontwarn javax.activation.**
+
+# Health Connect
+-keep class androidx.health.connect.client.** { *; }

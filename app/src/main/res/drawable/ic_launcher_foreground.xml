@@ -1,15 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Alal owl: adaptive-icon foreground. Scaled 0.9 so the ear tufts stay inside the 66dp safe zone. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#1A73E8"
-        android:pathData="M0,0h108v108h-108z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,24C37.43,24 24,37.43 24,54C24,70.57 37.43,84 54,84C58.33,84 62.41,83.08 66.07,81.43L84,84L81.43,66.07C83.08,62.41 84,58.33 84,54C84,37.43 70.57,24 54,24ZM54,78C40.75,78 30,67.25 30,54C30,40.75 40.75,30 54,30C67.25,30 78,40.75 78,54C78,57.54 77.23,60.91 75.86,63.93L74.86,66.14L75.14,68.57L76.14,76.14L68.57,75.14L66.14,74.86L63.93,75.86C60.91,77.23 57.54,78 54,78Z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,42L51,48L45,51L51,54L54,60L57,54L63,51L57,48Z" />
+    <group android:pivotX="54" android:pivotY="54" android:scaleX="0.9" android:scaleY="0.9">
+        <path android:fillColor="#43377C" android:pathData="M31,25L42.5,35.5Q54,31.5 65.5,35.5L77,25Q80.5,39 79,52Q79,73.5 54,83Q29,73.5 29,52Q27.5,39 31,25Z" />
+        <path android:fillColor="#5446A0" android:pathData="M54,66Q66,66 68,73Q62,80.5 54,82.5Q46,80.5 40,73Q42,66 54,66Z" />
+        <path android:strokeColor="#6F62B8" android:strokeWidth="1.6" android:strokeLineCap="round" android:strokeLineJoin="round"
+            android:pathData="M49,72L51.5,74.5L54,72L56.5,74.5L59,72" />
+        <path android:fillColor="#5E51A6" android:pathData="M30.5,51a13,13 0,1 0,26,0a13,13 0,1 0,-26,0ZM51.5,51a13,13 0,1 0,26,0a13,13 0,1 0,-26,0Z" />
+        <path android:fillColor="#FFB547" android:pathData="M34.0,51a9.5,9.5 0,1 0,19.0,0a9.5,9.5 0,1 0,-19.0,0ZM55.0,51a9.5,9.5 0,1 0,19.0,0a9.5,9.5 0,1 0,-19.0,0Z" />
+        <path android:fillColor="#FFD27A" android:pathData="M36.0,51a7.5,7.5 0,1 0,15.0,0a7.5,7.5 0,1 0,-15.0,0ZM57.0,51a7.5,7.5 0,1 0,15.0,0a7.5,7.5 0,1 0,-15.0,0Z" />
+        <path android:fillColor="#0E1022" android:pathData="M38.9,51a4.6,4.6 0,1 0,9.2,0a4.6,4.6 0,1 0,-9.2,0ZM59.9,51a4.6,4.6 0,1 0,9.2,0a4.6,4.6 0,1 0,-9.2,0Z" />
+        <path android:fillColor="#FFFFFF" android:pathData="M43.699999999999996,48.8a1.7,1.7 0,1 0,3.4,0a1.7,1.7 0,1 0,-3.4,0ZM64.7,48.8a1.7,1.7 0,1 0,3.4,0a1.7,1.7 0,1 0,-3.4,0Z" />
+        <path android:fillColor="#FF8A3D" android:pathData="M54,57.5L50.6,61.5L54,67L57.4,61.5Z" />
+    </group>
 </vector>

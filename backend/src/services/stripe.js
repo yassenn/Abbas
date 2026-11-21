@@ -13,7 +13,7 @@ const getClient = () => {
 
 /**
  * Create a PaymentIntent together with the Customer and EphemeralKey the
- * mobile PaymentSheet needs. Returns the exact shape the Abbas app reads:
+ * mobile PaymentSheet needs. Returns the exact shape the Alal app reads:
  * { paymentIntent, ephemeralKey, customer }.
  *
  * The ephemeral key is issued with the same API version as the client SDK
@@ -23,7 +23,7 @@ export async function createPaymentIntent({ amountCents, currency, idempotencyKe
   const stripe = getClient();
   const idem = idempotencyKey ? { idempotencyKey } : {};
   try {
-    const customer = await stripe.customers.create({ metadata: { app: 'abbas-ai' } }, idem);
+    const customer = await stripe.customers.create({ metadata: { app: 'alal-ai' } }, idem);
     const ephemeralKey = await stripe.ephemeralKeys.create(
       { customer: customer.id },
       { apiVersion: config.stripe.apiVersion },
@@ -34,7 +34,7 @@ export async function createPaymentIntent({ amountCents, currency, idempotencyKe
         currency,
         customer: customer.id,
         automatic_payment_methods: { enabled: true },
-        metadata: { app: 'abbas-ai' },
+        metadata: { app: 'alal-ai' },
       },
       idem,
     );

@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "ai.abbas.llama"
+    namespace = "ai.alal.llama"
     compileSdk = 34
     // NDK 27+ is required for 16 KB page-size compatible output (its own libomp
     // and linker defaults are 16 KB aligned; NDK 25 emits 4 KB segments).

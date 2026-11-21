@@ -1,21 +1,32 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.serialization")
     id("kotlin-kapt")
 }
 
 android {
-    namespace = "ai.abbas.app"
+    namespace = "ai.alal.app"
     compileSdk = 34
     ndkVersion = "27.1.12297006"
 
     defaultConfig {
-        applicationId = "ai.abbas.app"
+        applicationId = "ai.alal.app"
         minSdk = 26
         targetSdk = 34
         versionCode = 197
         versionName = "1.6.36-cpu"
+        manifestPlaceholders["appLabel"] = "@string/app_name"
+
+        // -PlegacyBridge=true builds a one-time update for the old "Abbas" install
+        // (package ai.abbas.app). It is the same app plus ModelShareProvider, so once
+        // installed over Abbas, Alal can import its downloaded models. Must be signed
+        // with the same key as Alal.
+        if (project.findProperty("legacyBridge")?.toString() == "true") {
+            applicationId = "ai.abbas.app"
+            versionCode = 198
+            versionName = "1.6.37-cpu-bridge"
+            manifestPlaceholders["appLabel"] = "Abbas"
+        }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -63,6 +74,8 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            // JavaMail ships duplicate license/notice files.
+            excludes += "/META-INF/{LICENSE.md,NOTICE.md,LICENSE.txt,NOTICE.txt}"
         }
     }
 
@@ -123,6 +136,11 @@ dependencies {
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     // WorkManager for background tasks
     implementation("androidx.work:work-runtime-ktx:2.9.0")
+    // Health Connect (read steps / sleep / heart rate / workouts for daily summaries)
+    implementation("androidx.health.connect:connect-client:1.1.0-alpha07")
+    // IMAP for Gmail / Outlook / other mailboxes (read-only)
+    implementation("com.sun.mail:android-mail:1.6.7")
+    implementation("com.sun.mail:android-activation:1.6.7")
 
     // Stripe Payment Gateway
     implementation("com.stripe:stripe-android:20.45.0")
@@ -131,8 +149,6 @@ dependencies {
     implementation("com.paypal.android:paypal-web-payments:1.3.0")
     implementation("com.paypal.android:payment-buttons:1.3.0")
 
-    // Serialization
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
 
     // llama.cpp LLM Local dependency
     implementation(project(":llama"))
@@ -140,6 +156,8 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
 
     testImplementation("junit:junit:4.13.2")
+    // Real org.json for JVM unit tests (the android.jar copy is a throwing stub).
+    testImplementation("org.json:json:20240303")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
     // Compose-rule tests can't run on this device: Espresso's onIdle() reflects

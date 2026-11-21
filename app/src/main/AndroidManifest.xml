@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- REQUIRED FOR DOWNLOADING THE MODEL WEIGHTS -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -8,23 +9,91 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Phone data for Summaries & To-dos (sideload build: Play restricts SMS / call log).
+         Each is requested at runtime only when the user turns that source on. -->
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Actions the user confirms from chat: calendar reminders/events, alarms, timers. -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <!-- "All files on phone" source. Sideload only: Play restricts All files access. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- App usage & routine: special access granted in Settings → Usage access. -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+    <!-- Location: places & visits, recorded on-device only. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- Health Connect (read only). -->
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.READ_SLEEP" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_EXERCISE" />
+
+    <!-- Lets installs signed with the same key share downloaded model weights
+         (see ModelShareProvider). Survives package renames, e.g. Abbas -> Alal. -->
+    <permission
+        android:name="ai.alal.permission.SHARE_MODELS"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="ai.alal.permission.SHARE_MODELS" />
+
+    <!-- Earlier package names to import models from (ModelImporter.LEGACY_PACKAGES). -->
+    <queries>
+        <package android:name="ai.abbas.app" />
+        <!-- Clock app that handles alarms/timers (package visibility, API 30+). -->
+        <intent>
+            <action android:name="android.intent.action.SET_ALARM" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SET_TIMER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="mailto" />
+        </intent>
+        <package android:name="com.google.android.apps.healthdata" />
+        <package android:name="com.whatsapp" />
+        <package android:name="org.telegram.messenger" />
+        <package android:name="org.thoughtcrime.securesms" />
+        <!-- Apps the "Check DMs now" sweep can open. -->
+        <package android:name="com.instagram.android" />
+        <package android:name="com.whatsapp.w4b" />
+        <package android:name="com.facebook.orca" />
+        <package android:name="com.twitter.android" />
+        <package android:name="com.linkedin.android" />
+        <package android:name="com.snapchat.android" />
+        <package android:name="com.zhiliaoapp.musically" />
+        <package android:name="com.discord" />
+        <package android:name="com.google.android.gm" />
+        <package android:name="com.microsoft.office.outlook" />
+        <package android:name="de.tutao.tutanota" />
+    </queries>
+
     <application
         android:allowBackup="false"
+        android:requestLegacyExternalStorage="true"
         android:fullBackupContent="false"
-        android:label="@string/app_name"
+        android:label="${appLabel}"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:hardwareAccelerated="false"
         android:extractNativeLibs="true"
-        android:theme="@style/Theme.Abbas">
+        android:theme="@style/Theme.Alal">
         <uses-native-library android:name="libOpenCL.so" android:required="false" />
         <uses-native-library android:name="libOpenCL-pixel.so" android:required="false" />
         <activity
-            android:name="ai.abbas.app.MainActivity"
+            android:name="ai.alal.app.MainActivity"
             android:exported="true"
-            android:label="@string/app_name"
-            android:theme="@style/Theme.Abbas"
+            android:label="${appLabel}"
+            android:theme="@style/Theme.Alal"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -32,8 +101,82 @@
             </intent-filter>
         </activity>
 
+        <provider
+            android:name="ai.alal.app.share.ModelShareProvider"
+            android:authorities="${applicationId}.modelshare"
+            android:exported="true"
+            android:permission="ai.alal.permission.SHARE_MODELS" />
+
+        <!-- Reads incoming notifications (WhatsApp, Telegram, mail…) once the user
+             grants Notification access in system settings. -->
         <service
-            android:name="ai.abbas.app.service.DownloadService"
+            android:name="ai.alal.app.personal.NotificationCollectorService"
+            android:label="${appLabel}"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- Optional screen reader (Accessibility). Off until the user enables it. -->
+        <service
+            android:name="ai.alal.app.personal.ScreenReaderService"
+            android:label="${appLabel}"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/screen_reader_config" />
+        </service>
+
+        <!-- "Share to Alal": WhatsApp Export chat, data-download zips, Telegram JSON. -->
+        <activity
+            android:name="ai.alal.app.personal.ImportActivity"
+            android:exported="true"
+            android:label="Import to Alal"
+            android:theme="@style/Theme.Alal">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+                <data android:mimeType="application/json" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
+
+        <!-- Health Connect privacy rationale (required for its permission screen). -->
+        <activity
+            android:name="ai.alal.app.personal.HealthRationaleActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+        </activity>
+        <!-- Android 14+: Health Connect is built in and opens this alias instead. -->
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:targetActivity="ai.alal.app.personal.HealthRationaleActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
+
+        <service
+            android:name="ai.alal.app.service.DownloadService"
             android:foregroundServiceType="dataSync"
             android:exported="false" />
 
@@ -46,7 +189,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <!-- Matches the package ID scheme -->
-                <data android:scheme="ai.abbas.app" android:host="paypalpay" />
+                <data android:scheme="ai.alal.app" android:host="paypalpay" />
             </intent-filter>
         </activity>
     </application>

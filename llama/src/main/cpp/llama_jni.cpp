@@ -141,7 +141,7 @@ static std::string chat_format_and_add(const std::string &role, const std::strin
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_ai_abbas_llama_LlamaJni_init(JNIEnv *env, jobject, jstring jNativeLibDir) {
+Java_ai_alal_llama_LlamaJni_init(JNIEnv *env, jobject, jstring jNativeLibDir) {
     llama_log_set(aichat_android_log_callback, nullptr);
 
     const char *path = env->GetStringUTFChars(jNativeLibDir, nullptr);
@@ -155,7 +155,7 @@ Java_ai_abbas_llama_LlamaJni_init(JNIEnv *env, jobject, jstring jNativeLibDir) {
 
 extern "C"
 JNIEXPORT jint JNICALL
-Java_ai_abbas_llama_LlamaJni_loadModel(JNIEnv *env, jobject, jstring jModelPath) {
+Java_ai_alal_llama_LlamaJni_loadModel(JNIEnv *env, jobject, jstring jModelPath) {
     reset_state();
 
     // Free previous model if any
@@ -185,7 +185,7 @@ Java_ai_abbas_llama_LlamaJni_loadModel(JNIEnv *env, jobject, jstring jModelPath)
 
 extern "C"
 JNIEXPORT jint JNICALL
-Java_ai_abbas_llama_LlamaJni_createContext(
+Java_ai_alal_llama_LlamaJni_createContext(
     JNIEnv *, jobject, jint jNCtx, jint jNThreads, jint jNBatch) {
 
     if (!g_model) { LOGe("No model loaded"); return 1; }
@@ -249,7 +249,7 @@ Java_ai_abbas_llama_LlamaJni_createContext(
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_ai_abbas_llama_LlamaJni_setSamplerParams(
+Java_ai_alal_llama_LlamaJni_setSamplerParams(
     JNIEnv *, jobject, jfloat jTemp, jfloat jTopP, jint jSeed) {
 
     if (!g_sampler || !g_model) return;
@@ -271,7 +271,7 @@ Java_ai_abbas_llama_LlamaJni_setSamplerParams(
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_ai_abbas_llama_LlamaJni_resetChat(JNIEnv *, jobject) {
+Java_ai_alal_llama_LlamaJni_resetChat(JNIEnv *, jobject) {
     reset_state();
     if (g_context) {
         llama_memory_clear(llama_get_memory(g_context), false);
@@ -281,7 +281,7 @@ Java_ai_abbas_llama_LlamaJni_resetChat(JNIEnv *, jobject) {
 
 extern "C"
 JNIEXPORT jint JNICALL
-Java_ai_abbas_llama_LlamaJni_submitMessages(
+Java_ai_alal_llama_LlamaJni_submitMessages(
     JNIEnv *env, jobject,
     jstring jMessagesJson,
     jint jMaxTokens,
@@ -377,7 +377,7 @@ Java_ai_abbas_llama_LlamaJni_submitMessages(
 
 extern "C"
 JNIEXPORT jbyteArray JNICALL
-Java_ai_abbas_llama_LlamaJni_nextToken(JNIEnv *env, jobject) {
+Java_ai_alal_llama_LlamaJni_nextToken(JNIEnv *env, jobject) {
     if (!g_context || !g_generating) return nullptr;
     if (g_stop_generation || g_current_pos >= g_stop_pos) {
         g_generating = false;
@@ -432,7 +432,7 @@ Java_ai_abbas_llama_LlamaJni_nextToken(JNIEnv *env, jobject) {
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_ai_abbas_llama_LlamaJni_stopGeneration(JNIEnv *, jobject) {
+Java_ai_alal_llama_LlamaJni_stopGeneration(JNIEnv *, jobject) {
     g_stop_generation = true;
     g_generating = false;
     LOGi("Generation stop requested");
@@ -440,7 +440,7 @@ Java_ai_abbas_llama_LlamaJni_stopGeneration(JNIEnv *, jobject) {
 
 extern "C"
 JNIEXPORT jstring JNICALL
-Java_ai_abbas_llama_LlamaJni_getThinkingTags(JNIEnv *env, jobject) {
+Java_ai_alal_llama_LlamaJni_getThinkingTags(JNIEnv *env, jobject) {
     // {"thinking":bool,"start":"...","ends":["..."]} — used by Kotlin to route the
     // reasoning trace to the thinking block.
     std::string json = "{\"thinking\":";
@@ -456,7 +456,7 @@ Java_ai_abbas_llama_LlamaJni_getThinkingTags(JNIEnv *env, jobject) {
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_ai_abbas_llama_LlamaJni_unload(JNIEnv *, jobject) {
+Java_ai_alal_llama_LlamaJni_unload(JNIEnv *, jobject) {
     reset_state();
     if (g_sampler) { common_sampler_free(g_sampler); g_sampler = nullptr; }
     g_chat_templates.reset();
@@ -471,7 +471,7 @@ Java_ai_abbas_llama_LlamaJni_unload(JNIEnv *, jobject) {
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_ai_abbas_llama_LlamaJni_shutdown(JNIEnv *, jobject) {
+Java_ai_alal_llama_LlamaJni_shutdown(JNIEnv *, jobject) {
     reset_state();
     if (g_sampler) { common_sampler_free(g_sampler); g_sampler = nullptr; }
     g_chat_templates.reset();
@@ -487,6 +487,6 @@ Java_ai_abbas_llama_LlamaJni_shutdown(JNIEnv *, jobject) {
 
 extern "C"
 JNIEXPORT jstring JNICALL
-Java_ai_abbas_llama_LlamaJni_systemInfo(JNIEnv *env, jobject) {
+Java_ai_alal_llama_LlamaJni_systemInfo(JNIEnv *env, jobject) {
     return env->NewStringUTF(llama_print_system_info());
 }

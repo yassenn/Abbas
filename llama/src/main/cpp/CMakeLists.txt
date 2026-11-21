@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22.1)
 
-project("abbas-llama" VERSION 1.0.0 LANGUAGES C CXX)
+project("alal-llama" VERSION 1.0.0 LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED true)
@@ -45,7 +45,7 @@ set(LLAMA_SRC ${CMAKE_CURRENT_LIST_DIR}/../../../../llama.cpp-vendor)
 add_subdirectory(${LLAMA_SRC} build-llama)
 
 # --------------------------------------------------------------------------
-# Abbas LLM JNI library
+# Alal LLM JNI library
 # --------------------------------------------------------------------------
 
 add_library(${CMAKE_PROJECT_NAME} SHARED

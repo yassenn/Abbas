@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Abbas</string>
+    <string name="app_name">Alal</string>
+    <string name="screen_reader_description">Lets Alal read the text shown in other apps so it can summarize it for you. Everything stays on this phone. Password fields and keyboards are never read.</string>
+    <string name="health_rationale">Alal reads steps, sleep, heart rate and workouts from Health Connect to write your daily summaries. The data stays on this phone in an encrypted database and is never uploaded.</string>
 </resources>

@@ -1,11 +1,11 @@
-# Abbas AI — Donations Backend
+# Alal AI — Donations Backend
 
-Node/Express service that the **Abbas AI** Android app calls to create Stripe
+Node/Express service that the **Alal AI** Android app calls to create Stripe
 PaymentIntents and PayPal orders. It holds all provider secrets; the app only
 ever receives client-side material (a PaymentIntent client secret, an ephemeral
 key, a customer id) or a PayPal order id.
 
-> This is a standalone service for Abbas AI. It has nothing to do with any other
+> This is a standalone service for Alal AI. It has nothing to do with any other
 > project's backend.
 
 ## Endpoints
@@ -98,8 +98,8 @@ This service speaks plain HTTP — **terminate TLS at a reverse proxy / load
 balancer** and put it behind HTTPS only.
 
 ```bash
-docker build -t abbas-backend .
-docker run --env-file .env -p 8080:8080 abbas-backend
+docker build -t alal-backend .
+docker run --env-file .env -p 8080:8080 alal-backend
 ```
 
 Production checklist: `APP_ENV=production`, real keys, `PAYPAL_ENV=live`,
@@ -110,7 +110,7 @@ configured.
 
 The app is already coded to call these endpoints; it just needs real values.
 
-1. `app/src/main/java/ai/abbas/app/data/PaymentConfig.kt`
+1. `app/src/main/java/ai/alal/app/data/PaymentConfig.kt`
    - `STRIPE_PUBLISHABLE_KEY` = your `pk_…`
    - `STRIPE_BACKEND_URL` = `https://<host>/create-payment-intent`
    - `PAYPAL_CLIENT_ID` = your PayPal client id
@@ -129,6 +129,6 @@ The app is already coded to call these endpoints; it just needs real values.
 - The amount originates on the client and can be tampered with; the server
   enforces min/max bounds. For strict integrity, reconcile against the Stripe
   `payment_intent.succeeded` webhook and consider pinning allowed amounts.
-- The app's `ai.abbas.app://paypalpay` deep link is exported and spoofable
+- The app's `ai.alal.app://paypalpay` deep link is exported and spoofable
   (see `SECURITY_PENTEST_REPORT.md`) — server-side capture + webhook
   reconciliation is the source of truth, not the client callback.
