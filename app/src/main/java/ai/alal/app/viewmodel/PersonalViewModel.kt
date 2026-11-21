@@ -62,6 +62,8 @@ data class SourceState(
     val write: WriteCapabilities = WriteCapabilities(),
     val summaryInstructions: String = "",
     val summaryOptions: ai.alal.app.data.SummaryOptions = ai.alal.app.data.SummaryOptions(),
+    /** Downloaded models usable for summaries (id to name), best first. */
+    val summaryModels: List<Pair<String, String>> = emptyList(),
     val email: Boolean = false,
     val emailAccounts: List<EmailAccount> = emptyList(),
     val dmApps: Set<String> = emptySet(),
@@ -117,6 +119,7 @@ class PersonalViewModel(app: Application) : AndroidViewModel(app) {
         write = settings.writeCapabilities(),
         summaryInstructions = settings.summaryInstructions,
         summaryOptions = settings.summaryOptions,
+        summaryModels = ai.alal.app.personal.SummaryModels.downloaded(getApplication()).map { it.id to it.name },
         email = settings.emailEnabled,
         emailAccounts = EmailAccounts(getApplication()).all(),
         dmApps = settings.dmApps,

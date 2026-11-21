@@ -1,9 +1,13 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package ai.alal.app.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -39,6 +43,7 @@ fun AiHubScreen(
     onOpenChat: () -> Unit
 ) {
     val models by viewModel.allModels.collectAsState()
+    var strengthFilter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("ALL") }
     val downloadedIds by viewModel.downloadedModelIds.collectAsState()
     val downloadStates by viewModel.downloadStates.collectAsState()
     val currentModel by viewModel.currentModel.collectAsState()
@@ -127,9 +132,26 @@ fun AiHubScreen(
                 item { LegacyOutdatedCard() }
             }
 
-            // Grouped by how well each model handles summaries, documents and instructions.
-            val tierOrder = listOf("HIGH", "MID", "LOW", null)
-            val grouped = models.groupBy { it.tier?.takeIf { t -> t in tierOrder } }
+            item(key = "model-updates") { ModelUpdatesRow(viewModel) }
+            item(key = "strength-filter") {
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()).padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    STRENGTH_FILTERS.forEach { (value, label) ->
+                        FilterChip(
+                            selected = strengthFilter == value,
+                            onClick = { strengthFilter = value },
+                            label = { Text(label) }
+                        )
+                    }
+                }
+            }
+            // Filter by what the user needs, then group by overall quality.
+            val shown = if (strengthFilter == "ALL") models
+            else models.filter { it.strengths.orEmpty().contains(strengthFilter) || it.tier == null }
+            val tierOrder = listOf("HIGH", "MID", "LOW", "RETIRED", null)
+            val grouped = shown.groupBy { it.tier?.takeIf { t -> t in tierOrder } }
             tierOrder.forEach { tier ->
                 val group = grouped[tier].orEmpty()
                 if (group.isEmpty()) return@forEach
@@ -138,7 +160,8 @@ fun AiHubScreen(
                         when (tier) {
                             "HIGH" -> "High performing · best summaries"
                             "MID" -> "Mid · speed and quality balance"
-                            "LOW" -> "Low · fast but weak at summaries"
+                            "LOW" -> "Low · for older or low-RAM phones"
+                            "RETIRED" -> "Retired · on your phone, no longer recommended"
                             else -> "Custom"
                         },
                         style = MaterialTheme.typography.labelLarge,
@@ -377,6 +400,14 @@ private fun AiHubModelCard(
                         Spacer(Modifier.height(2.dp))
                         Text(it, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                     }
+                    model.strengths?.takeIf { it.isNotEmpty() }?.let { tags ->
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            tags.mapNotNull { t -> STRENGTH_FILTERS.firstOrNull { it.first == t }?.second }.joinToString(" · "),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = AlalBlue
+                        )
+                    }
                     if (!isCapable) {
                         Spacer(Modifier.height(4.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -482,5 +513,39 @@ private fun AiHubModelCard(
                 }
             }
         }
+    }
+}
+
+/** AI Hub filter: what a model is best at (values match ModelConfig.strengths). */
+internal val STRENGTH_FILTERS = listOf(
+    "ALL" to "All",
+    "CHAT" to "Answers",
+    "REASONING" to "Reasoning & math",
+    "CODING" to "Coding",
+    "SUMMARIES" to "Summaries",
+    "DOCUMENTS" to "Documents",
+    "LANGUAGES" to "Languages",
+    "FAST" to "Fast / low RAM"
+)
+
+/** Signed model-list updates: weekly automatic check (Wi-Fi) plus a manual button. */
+@Composable
+private fun ModelUpdatesRow(viewModel: ai.alal.app.viewmodel.ChatViewModel) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var auto by remember { mutableStateOf(ai.alal.app.inference.ModelCatalog.isAutoUpdate(context)) }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("Keep model list updated", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "Weekly on Wi-Fi · list v${ai.alal.app.inference.ModelCatalog.version} · signed and verified",
+                style = MaterialTheme.typography.labelSmall, color = Color.Gray
+            )
+        }
+        TextButton(onClick = { viewModel.checkModelUpdates() }) { Text("Check now") }
+        Switch(
+            checked = auto,
+            onCheckedChange = { auto = it; ai.alal.app.inference.ModelCatalog.setAutoUpdate(context, it) },
+            colors = SwitchDefaults.colors(checkedTrackColor = AlalBlue)
+        )
     }
 }

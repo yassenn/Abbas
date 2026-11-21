@@ -78,6 +78,7 @@ object EmailCollector {
             if (account.auth == EmailAccount.AUTH_OAUTH_MICROSOFT) {
                 put("mail.imaps.auth.mechanisms", "XOAUTH2")
             }
+            ai.alal.app.net.NetworkPrivacy.applyToMail(this)
         }
         val store = Session.getInstance(props).getStore("imaps")
         store.connect(account.host, account.port, account.email, password)

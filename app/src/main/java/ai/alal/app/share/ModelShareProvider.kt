@@ -42,7 +42,7 @@ class ModelShareProvider : ContentProvider() {
         if (uri.pathSegments != listOf(PATH_MODELS)) return null
         val cursor = MatrixCursor(COLUMNS)
         val root = modelRoot() ?: return cursor
-        val known = (availableModels + loadCustomModels()).associateBy { it.id }
+        val known = (availableModels + ai.alal.app.data.retiredModels + loadCustomModels()).associateBy { it.id }
 
         root.listFiles()?.filter { it.isDirectory && isSafeModelId(it.name) }?.forEach { dir ->
             val config = known[dir.name]

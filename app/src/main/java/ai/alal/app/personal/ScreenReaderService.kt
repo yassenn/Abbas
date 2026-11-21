@@ -89,7 +89,7 @@ class ScreenReaderService : AccessibilityService() {
             ?.activityInfo?.packageName
         val keyboards = (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager)
             .enabledInputMethodList.map { it.packageName }
-        return setOfNotNull(packageName, "com.android.systemui", "com.android.settings", home) + keyboards
+        return setOfNotNull(packageName, "com.android.systemui", "com.android.settings", home) + keyboards + NEVER_READ
     }
 
     override fun onServiceConnected() {
@@ -171,6 +171,15 @@ class ScreenReaderService : AccessibilityService() {
         @Volatile
         var instance: ScreenReaderService? = null
             private set
+
+        /** Password managers and authenticators: never read, whatever the user enables. */
+        private val NEVER_READ = setOf(
+            "com.x8bit.bitwarden", "com.onepassword.android", "com.lastpass.lpandroid", "com.dashlane",
+            "com.kunzisoft.keepass.free", "com.kunzisoft.keepass.libre", "keepass2android.keepass2android",
+            "proton.android.pass", "com.google.android.apps.authenticator2", "com.authy.authy",
+            "com.azure.authenticator", "com.beemdevelopment.aegis", "org.fedorahosted.freeotp",
+            "com.google.android.gms"
+        )
 
         private const val DEBOUNCE_MS = 4_000L
         private const val MIN_CHARS = 40

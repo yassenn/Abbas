@@ -1,0 +1,247 @@
+{
+ "version": 2026112116,
+ "models": [
+  {
+   "id": "Qwen3.5-9B-Q4_K_M",
+   "name": "Qwen3.5 9B (Alibaba)",
+   "ggufFile": "Qwen3.5-9B-Q4_K_M.gguf",
+   "baseUrl": "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/",
+   "tier": "HIGH",
+   "note": "Smartest model here. Flagship phones with 12 GB+ RAM only.",
+   "sha256": "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8",
+   "estimatedRamBytes": 9500000000,
+   "contextSize": 8192,
+   "strengths": [
+    "CHAT",
+    "REASONING",
+    "CODING",
+    "SUMMARIES",
+    "DOCUMENTS",
+    "LANGUAGES"
+   ]
+  },
+  {
+   "id": "Qwen3.5-4B-Q4_K_M",
+   "name": "Qwen3.5 4B (Alibaba)",
+   "ggufFile": "Qwen3.5-4B-Q4_K_M.gguf",
+   "baseUrl": "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/",
+   "tier": "HIGH",
+   "note": "Best all-rounder for most phones: answers, reasoning, code and long documents.",
+   "sha256": "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4",
+   "estimatedRamBytes": 3500000000,
+   "contextSize": 8192,
+   "strengths": [
+    "CHAT",
+    "REASONING",
+    "CODING",
+    "SUMMARIES",
+    "DOCUMENTS",
+    "LANGUAGES"
+   ]
+  },
+  {
+   "id": "gemma-4-E4B-it-Q4_K_M",
+   "name": "Gemma 4 E4B (Google)",
+   "ggufFile": "gemma-4-E4B-it-Q4_K_M.gguf",
+   "baseUrl": "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/",
+   "tier": "HIGH",
+   "note": "Very natural answers and faithful summaries. Needs 8 GB+ RAM.",
+   "sha256": "85a896a047553e842f25297ee5b031d64ff30147d9c4af17b1e4b394cd1fab87",
+   "estimatedRamBytes": 6500000000,
+   "contextSize": 8192,
+   "strengths": [
+    "CHAT",
+    "SUMMARIES",
+    "DOCUMENTS",
+    "LANGUAGES"
+   ]
+  },
+  {
+   "id": "gemma-4-E2B-it-Q4_K_M",
+   "name": "Gemma 4 E2B (Google)",
+   "ggufFile": "gemma-4-E2B-it-Q4_K_M.gguf",
+   "baseUrl": "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/",
+   "tier": "HIGH",
+   "note": "Strong phone-sized model; clean, faithful summaries.",
+   "sha256": "740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8",
+   "estimatedRamBytes": 3800000000,
+   "contextSize": 8192,
+   "strengths": [
+    "CHAT",
+    "SUMMARIES",
+    "LANGUAGES"
+   ]
+  },
+  {
+   "id": "MiniCPM5-2B-Q4_K_M",
+   "name": "MiniCPM5 2B (OpenBMB)",
+   "ggufFile": "MiniCPM5-2B-Q4_K_M.gguf",
+   "baseUrl": "https://huggingface.co/openbmb/MiniCPM5-2B-GGUF/resolve/main/",
+   "tier": "HIGH",
+   "note": "Top model under 4B; excellent summaries for its small size.",
+   "sha256": "ec2d5801640099e97d8d7e8003ad4d81f336e757811f03a26173dddf386602fd",
+   "estimatedRamBytes": 2300000000,
+   "contextSize": 8192,
+   "strengths": [
+    "SUMMARIES",
+    "DOCUMENTS",
+    "REASONING",
+    "CODING",
+    "FAST"
+   ]
+  },
+  {
+   "id": "NVIDIA-Nemotron3-Nano-4B-Q4_K_M",
+   "name": "Nemotron 3 Nano 4B (NVIDIA)",
+   "ggufFile": "NVIDIA-Nemotron3-Nano-4B-Q4_K_M.gguf",
+   "baseUrl": "https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-4B-GGUF/resolve/main/",
+   "tier": "HIGH",
+   "note": "Follows formats and rules precisely; reliable to-do extraction.",
+   "sha256": "be5d9a656a51922f24f1f09a759cebb694e1f5d9728bf0ef9f8c972c5a0b5ef2",
+   "estimatedRamBytes": 3400000000,
+   "contextSize": 8192,
+   "strengths": [
+    "SUMMARIES",
+    "CHAT",
+    "REASONING"
+   ]
+  },
+  {
+   "id": "Phi-4-mini-instruct-Q4_K_M",
+   "name": "Phi-4 Mini (Microsoft)",
+   "ggufFile": "Phi-4-mini-instruct-Q4_K_M.gguf",
+   "baseUrl": "https://huggingface.co/unsloth/Phi-4-mini-instruct-GGUF/resolve/main/",
+   "tier": "HIGH",
+   "note": "Precise, structured answers; strong at math and code.",
+   "sha256": "88c00229914083cd112853aab84ed51b87bdf6b9ce42f532d8c85c7c63b1730a",
+   "estimatedRamBytes": 3000000000,
+   "contextSize": 4096,
+   "strengths": [
+    "REASONING",
+    "CODING",
+    "CHAT"
+   ]
+  },
+  {
+   "id": "Ministral-3-8B-Instruct-2512-Q4_K_M",
+   "name": "Ministral 3 8B (Mistral)",
+   "ggufFile": "Ministral-3-8B-Instruct-2512-Q4_K_M.gguf",
+   "baseUrl": "https://huggingface.co/mistralai/Ministral-3-8B-Instruct-2512-GGUF/resolve/main/",
+   "tier": "HIGH",
+   "note": "High quality, great in European languages. Needs lots of RAM; slow.",
+   "sha256": "33e7a72cf5e6e2cfc2f2847075acc013d68bba023e35310cef86b5cf8fdca761",
+   "estimatedRamBytes": 6500000000,
+   "contextSize": 4096,
+   "strengths": [
+    "CHAT",
+    "LANGUAGES",
+    "SUMMARIES"
+   ]
+  },
+  {
+   "id": "Qwen3.5-2B-Q4_K_M",
+   "name": "Qwen3.5 2B (Alibaba)",
+   "ggufFile": "Qwen3.5-2B-Q4_K_M.gguf",
+   "baseUrl": "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/",
+   "tier": "MID",
+   "note": "Good balance of speed and quality for everyday use.",
+   "sha256": "aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223",
+   "estimatedRamBytes": 1800000000,
+   "contextSize": 8192,
+   "strengths": [
+    "CHAT",
+    "SUMMARIES",
+    "LANGUAGES",
+    "FAST"
+   ]
+  },
+  {
+   "id": "granite-4.2-3b-Q4_K_M",
+   "name": "Granite 4.2 3B (IBM)",
+   "ggufFile": "granite-4.2-3b-Q4_K_M.gguf",
+   "baseUrl": "https://huggingface.co/ibm-granite/granite-4.2-3b-GGUF/resolve/main/",
+   "tier": "MID",
+   "note": "Business-style, factual summaries; good with documents.",
+   "sha256": "e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5",
+   "estimatedRamBytes": 2800000000,
+   "contextSize": 4096,
+   "strengths": [
+    "SUMMARIES",
+    "DOCUMENTS"
+   ]
+  },
+  {
+   "id": "Ministral-3-3B-Instruct-2512-Q4_K_M",
+   "name": "Ministral 3 3B (Mistral)",
+   "ggufFile": "Ministral-3-3B-Instruct-2512-Q4_K_M.gguf",
+   "baseUrl": "https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512-GGUF/resolve/main/",
+   "tier": "MID",
+   "note": "Solid all-rounder with concise answers.",
+   "sha256": "9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8",
+   "estimatedRamBytes": 2700000000,
+   "contextSize": 4096,
+   "strengths": [
+    "CHAT",
+    "LANGUAGES"
+   ]
+  },
+  {
+   "id": "Llama-3.2-3B-Instruct-Q4_K_M",
+   "name": "Llama 3.2 3B (Meta)",
+   "ggufFile": "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+   "baseUrl": "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/",
+   "tier": "MID",
+   "note": "Dependable general chat; weaker on long inputs.",
+   "sha256": "6c1a2b41161032677be168d354123594c0e6e67d2b9227c84f296ad037c728ff",
+   "estimatedRamBytes": 2500000000,
+   "contextSize": 4096,
+   "strengths": [
+    "CHAT"
+   ]
+  },
+  {
+   "id": "SmolLM3-3B-Q4_K_M",
+   "name": "SmolLM3 3B (HuggingFace)",
+   "ggufFile": "SmolLM3-3B-Q4_K_M.gguf",
+   "baseUrl": "https://huggingface.co/unsloth/SmolLM3-3B-GGUF/resolve/main/",
+   "tier": "MID",
+   "note": "Decent quality; sometimes drifts from requested formats.",
+   "sha256": "4de907d2d388a5508fb7cb443a06effe14cce3518b0a78d3bdd9e74d9edce989",
+   "estimatedRamBytes": 2500000000,
+   "contextSize": 4096,
+   "strengths": [
+    "CHAT",
+    "REASONING"
+   ]
+  },
+  {
+   "id": "LFM2.5-1.2B-Instruct-Q4_K_M",
+   "name": "LFM2.5 1.2B (Liquid AI)",
+   "ggufFile": "LFM2.5-1.2B-Instruct-Q4_K_M.gguf",
+   "baseUrl": "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/resolve/main/",
+   "tier": "MID",
+   "note": "Very fast; fine for quick questions and brief summaries.",
+   "sha256": "b1b3de114215d9507409a662a501a631095a479a419584e8a2ded6304b19b4f5",
+   "estimatedRamBytes": 1200000000,
+   "contextSize": 4096,
+   "strengths": [
+    "FAST",
+    "CHAT"
+   ]
+  },
+  {
+   "id": "Qwen3.5-0.8B-Q4_K_M",
+   "name": "Qwen3.5 0.8B (Alibaba)",
+   "ggufFile": "Qwen3.5-0.8B-Q4_K_M.gguf",
+   "baseUrl": "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/",
+   "tier": "LOW",
+   "note": "Tiny and fast for older phones (4 GB RAM); limited knowledge.",
+   "sha256": "bd258782e35f7f458f8aced1adc053e6e92e89bc735ba3be89d38a06121dc517",
+   "estimatedRamBytes": 1000000000,
+   "contextSize": 8192,
+   "strengths": [
+    "FAST"
+   ]
+  }
+ ]
+}

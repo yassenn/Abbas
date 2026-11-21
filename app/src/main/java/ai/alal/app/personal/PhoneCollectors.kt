@@ -48,13 +48,15 @@ object PhoneCollectors {
                 val date = c.getLong(3)
                 newest = maxOf(newest, date)
                 if (body.isEmpty()) continue
-                out += IngestedItemEntity(
+                val item = IngestedItemEntity(
                     source = PersonalSource.SMS.name,
                     sourceKey = "sms:$id",
                     sender = names.lookup(address),
                     body = body.take(MAX_BODY_CHARS),
                     timestamp = date
                 )
+                // One-time codes are never stored, even encrypted.
+                if (!PersonalSummarizer.isNoise(item)) out += item
             }
         }
         settings.lastSmsTimestamp = newest

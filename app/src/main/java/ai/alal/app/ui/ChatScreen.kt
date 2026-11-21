@@ -25,8 +25,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
@@ -1117,7 +1115,7 @@ fun MessageBubble(
         if (isUser || message.isGenerating) emptyList() else PhoneActionParser.parse(message.text)
     }
     var isThoughtExpanded by remember { mutableStateOf(true) }
-    val clipboardManager = LocalClipboardManager.current
+    val context = androidx.compose.ui.platform.LocalContext.current
     
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1281,7 +1279,7 @@ fun MessageBubble(
                     // Actions
                     Row {
                         IconButton(
-                            onClick = { clipboardManager.setText(AnnotatedString(displayText)) },
+                            onClick = { copySensitive(context, displayText) },
                             modifier = Modifier.size(24.dp)
                         ) {
                             Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy", modifier = Modifier.size(14.dp), tint = Color.Gray)
@@ -1585,3 +1583,14 @@ fun HfTokenItem(viewModel: ChatViewModel) {
     }
 }
 
+/**
+ * Copy a reply flagged as sensitive, so Android 13+ hides it from the clipboard
+ * preview and keyboards' clipboard history.
+ */
+private fun copySensitive(context: android.content.Context, text: String) {
+    val clip = android.content.ClipData.newPlainText("Alal", text)
+    clip.description.extras = android.os.PersistableBundle().apply {
+        putBoolean("android.content.extra.IS_SENSITIVE", true)
+    }
+    (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(clip)
+}

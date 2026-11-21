@@ -82,15 +82,19 @@ internal fun isCredibleSource(url: String): Boolean {
  */
 object WebSearchRepository {
 
-    private val client by lazy {
-        // Hard limits so a slow site can't stall the answer (pages are fetched in parallel).
-        OkHttpClient.Builder()
-            .followRedirects(true)
-            .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
-            .callTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
-            .build()
-    }
+    // Hard limits so a slow site can't stall the answer (pages are fetched in parallel).
+    // Built per use so a Network privacy change (Tor / proxy) applies immediately;
+    // Tor needs more headroom than a direct connection.
+    private val client: OkHttpClient
+        get() {
+            val slow = ai.alal.app.net.NetworkPrivacy.route.mode != ai.alal.app.net.NetworkPrivacy.OFF
+            return ai.alal.app.net.NetworkPrivacy.client {
+                followRedirects(true)
+                connectTimeout(if (slow) 15 else 5, java.util.concurrent.TimeUnit.SECONDS)
+                readTimeout(if (slow) 15 else 6, java.util.concurrent.TimeUnit.SECONDS)
+                callTimeout(if (slow) 25 else 8, java.util.concurrent.TimeUnit.SECONDS)
+            }
+        }
 
     data class SearchResult(
         val title: String,

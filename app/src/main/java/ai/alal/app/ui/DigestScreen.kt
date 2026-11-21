@@ -222,6 +222,7 @@ private fun DataAccessPage(viewModel: PersonalViewModel, sources: SourceState) {
     ) {
         item { SourcesCard(sources, counts.associate { it.source to it.count }, viewModel) }
         item { EmailAndImportCard(viewModel, sources) }
+        item { NetworkPrivacyCard() }
     }
 }
 

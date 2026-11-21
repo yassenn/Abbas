@@ -33,7 +33,8 @@ object OutlookAuth {
 
     data class Tokens(val accessToken: String, val refreshToken: String)
 
-    private val http = OkHttpClient.Builder().callTimeout(30, TimeUnit.SECONDS).build()
+    private val http: OkHttpClient
+        get() = ai.alal.app.net.NetworkPrivacy.client { callTimeout(45, TimeUnit.SECONDS) }
 
     suspend fun startDeviceCode(clientId: String): DeviceCode = withContext(Dispatchers.IO) {
         val json = post("$AUTHORITY/devicecode", FormBody.Builder()

@@ -24,11 +24,17 @@ import kotlinx.coroutines.launch
  */
 class ImportActivity : ComponentActivity() {
 
-    private var status by mutableStateOf("Importing…")
+    private var status by mutableStateOf("")
     private var done by mutableStateOf(false)
+    /** Files waiting for the user's OK. Any app can share to Alal, so nothing is imported unasked. */
+    private var pending by mutableStateOf<List<Uri>>(emptyList())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.setFlags(
+            android.view.WindowManager.LayoutParams.FLAG_SECURE,
+            android.view.WindowManager.LayoutParams.FLAG_SECURE
+        )
         setContent {
             GemmaAndroidAppTheme {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -37,6 +43,23 @@ class ImportActivity : ComponentActivity() {
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
+                        if (pending.isNotEmpty()) {
+                            Text("Import into Alal?", fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.height(8.dp))
+                            pending.forEach { Text(fileName(it), style = MaterialTheme.typography.bodySmall) }
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "Messages are stored encrypted on this phone and used for summaries and chat.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            Button(
+                                onClick = { runImport(pending) },
+                                colors = ButtonDefaults.buttonColors(containerColor = AlalBlue)
+                            ) { Text("Import") }
+                            TextButton(onClick = { finish() }) { Text("Cancel") }
+                            return@Column
+                        }
                         if (!done) CircularProgressIndicator(color = AlalBlue)
                         Spacer(Modifier.height(16.dp))
                         Text(status, fontWeight = FontWeight.Medium)
@@ -61,6 +84,17 @@ class ImportActivity : ComponentActivity() {
             done = true
             return
         }
+        pending = uris
+    }
+
+    private fun fileName(uri: Uri): String = runCatching {
+        contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { if (it.moveToFirst()) it.getString(0) else null }
+    }.getOrNull() ?: uri.lastPathSegment.orEmpty()
+
+    private fun runImport(uris: List<Uri>) {
+        pending = emptyList()
+        status = "Importing…"
         lifecycleScope.launch {
             status = try {
                 val r = ChatImporter.import(applicationContext, uris)

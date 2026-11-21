@@ -32,6 +32,8 @@ class NotificationCollectorService : NotificationListenerService() {
         try {
             if (!settings.notificationsEnabled) return
             val item = toItem(sbn) ?: return
+            // One-time codes are never stored, even encrypted.
+            if (PersonalSummarizer.isNoise(item)) return
             scope.launch {
                 try {
                     AppDatabase.getInstance(applicationContext).personalDao().insertItems(listOf(item))

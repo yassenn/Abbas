@@ -145,7 +145,7 @@ class DownloadService : Service() {
                 } else {
                     val err = result.exceptionOrNull()
                     if (err !is CancellationException) {
-                        android.util.Log.e("DownloadSvc", "Download failed: ${err?.javaClass?.simpleName}: ${err?.message}", err)
+                        if (BuildConfig.DEBUG) android.util.Log.e("DownloadSvc", "Download failed: ${err?.javaClass?.simpleName}: ${err?.message}", err)
                         val failed = state.copy(
                             progress = 1f,
                             status = "Failed",
@@ -161,7 +161,7 @@ class DownloadService : Service() {
                 _currentStates.remove(model.id)
                 _progressFlow.tryEmit(state.copy(status = "Cancelled", done = true))
             } catch (e: Exception) {
-                android.util.Log.e("DownloadSvc", "Download exception: ${e.javaClass.simpleName}: ${e.message}", e)
+                if (BuildConfig.DEBUG) android.util.Log.e("DownloadSvc", "Download exception: ${e.javaClass.simpleName}: ${e.message}", e)
                 val failed = state.copy(status = "Failed: ${e.message}", done = true, error = e.message)
                 _currentStates[model.id] = failed
                 _progressFlow.tryEmit(failed)

@@ -22,7 +22,7 @@ class ModelDownloader(private val token: String? = null) {
         const val PROGRESS_STEP_BYTES = 2L * 1024 * 1024
     }
 
-    private val client = OkHttpClient()
+    private val client: OkHttpClient = ai.alal.app.net.NetworkPrivacy.client()
     private var currentCall: Call? = null
 
     /**

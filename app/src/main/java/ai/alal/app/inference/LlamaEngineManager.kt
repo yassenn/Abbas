@@ -180,6 +180,44 @@ class LlamaEngineManager(private val context: Context) {
         }
     }
 
+    /**
+     * Checks the file against the catalogue's SHA-256 the first time it is loaded
+     * (a few seconds per GB), then remembers the result next to the file. A
+     * mismatch means a corrupted or tampered download and the model is refused.
+     */
+    private suspend fun verifySha256Once(model: ModelConfig, ggufFile: File, onProgress: suspend (Float, String) -> Unit) {
+        val expected = model.sha256?.lowercase() ?: return
+        val marker = File(ggufFile.parentFile, ggufFile.name + ".verified")
+        val stamp = "$expected:${ggufFile.length()}:${ggufFile.lastModified()}"
+        if (marker.exists() && marker.readText() == stamp) return
+
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        val total = ggufFile.length().coerceAtLeast(1)
+        var done = 0L
+        var lastReport = 0L
+        ggufFile.inputStream().buffered(1 shl 20).use { input ->
+            val buf = ByteArray(1 shl 20)
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                digest.update(buf, 0, n)
+                done += n
+                if (done - lastReport > 64L shl 20) {
+                    lastReport = done
+                    onProgress(done.toFloat() / total, "Checking download (first load only)…")
+                }
+            }
+        }
+        val actual = digest.digest().joinToString("") { "%02x".format(it) }
+        if (actual != expected) {
+            marker.delete()
+            throw CorruptedModelException(
+                "This model file doesn't match its published checksum, so it may be corrupted or tampered with. Delete it and download again."
+            )
+        }
+        marker.writeText(stamp)
+    }
+
     private fun verifyGgufIntegrity(ggufFile: File) {
         if (!ggufFile.exists()) {
             throw CorruptedModelException("Model file ${ggufFile.name} is missing.")
@@ -244,6 +282,7 @@ class LlamaEngineManager(private val context: Context) {
             }
 
             onProgress(1f, "Verifying model integrity...")
+            verifySha256Once(model, ggufFile, onProgress)
             verifyGgufIntegrity(ggufFile)
 
             // Initialize engine + load model

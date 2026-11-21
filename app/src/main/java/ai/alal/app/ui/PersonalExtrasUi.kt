@@ -379,6 +379,23 @@ internal fun SummarySettingsCard(viewModel: PersonalViewModel, sources: SourceSt
             }
             if (!expanded) return@Column
 
+            SettingLabel("Model")
+            if (sources.summaryModels.isEmpty()) {
+                Text("Download a model in the AI Hub first.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            } else {
+                val recommended = sources.summaryModels.first()
+                val chosen = sources.summaryModels.firstOrNull { it.first == o.modelId }
+                ChoiceChips(
+                    listOf("" to "Auto · ${recommended.second.substringBefore(" (")}") +
+                        sources.summaryModels.map { (id, name) -> id to name.substringBefore(" (") },
+                    if (chosen == null) "" else o.modelId
+                ) { v -> viewModel.updateSummaryOptions { it.copy(modelId = v) } }
+                Text(
+                    "Recommended for summaries: ${recommended.second}. Alal switches to it for summaries and back to your chat model afterwards.",
+                    style = MaterialTheme.typography.labelSmall, color = Color.Gray
+                )
+            }
+
             SettingLabel("Length")
             ChoiceChips(LENGTHS, o.length) { v -> viewModel.updateSummaryOptions { it.copy(length = v) } }
             SettingLabel("Organize by")
@@ -503,5 +520,67 @@ private fun ToggleLine(text: String, checked: Boolean, enabled: Boolean = true, 
             checked = checked && enabled, onCheckedChange = onChange, enabled = enabled,
             colors = SwitchDefaults.colors(checkedTrackColor = AlalBlue)
         )
+    }
+}
+
+/** Route Alal's network traffic through Tor (Orbot) or a SOCKS proxy. */
+@Composable
+internal fun NetworkPrivacyCard() {
+    val context = LocalContext.current
+    val np = ai.alal.app.net.NetworkPrivacy
+    var mode by remember { mutableStateOf(np.route.mode) }
+    var host by remember { mutableStateOf(if (np.route.mode == np.SOCKS) np.route.host else "") }
+    var port by remember { mutableStateOf(if (np.route.mode == np.SOCKS) np.route.port.toString() else "1080") }
+    val orbotInstalled = remember { context.packageManager.getLaunchIntentForPackage("org.torproject.android") != null }
+
+    OutlinedCard(shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, Color.Gray.copy(alpha = 0.15f))) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.Shield, contentDescription = null, tint = AlalBlue, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Network privacy", fontWeight = FontWeight.SemiBold)
+            }
+            Text(
+                "Web search, page reading, model downloads and mail normally connect directly, so those servers see your IP address. Route them through Tor to hide it.",
+                style = MaterialTheme.typography.bodySmall, color = Color.Gray, modifier = Modifier.padding(vertical = 6.dp)
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(np.OFF to "Direct", np.TOR to "Tor (Orbot)", np.SOCKS to "Custom proxy").forEach { (value, label) ->
+                    FilterChip(
+                        selected = mode == value,
+                        onClick = {
+                            mode = value
+                            if (value != np.SOCKS) np.save(context, ai.alal.app.net.NetworkPrivacy.Route(mode = value))
+                        },
+                        label = { Text(label) }
+                    )
+                }
+            }
+            if (mode == np.TOR) {
+                Text(
+                    if (orbotInstalled) "Open Orbot and connect. While Tor is off, Alal's connections fail instead of going direct."
+                    else "Install Orbot (Tor for Android), connect it, then come back. Until then Alal's connections fail instead of going direct.",
+                    style = MaterialTheme.typography.labelSmall, color = AlalBlue, modifier = Modifier.padding(top = 6.dp)
+                )
+                if (!orbotInstalled) {
+                    TextButton(onClick = {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=org.torproject.android"))) }
+                    }) { Text("Get Orbot") }
+                }
+            }
+            if (mode == np.SOCKS) {
+                OutlinedTextField(value = host, onValueChange = { host = it.trim() }, label = { Text("SOCKS5 host") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    value = port, onValueChange = { port = it.filter(Char::isDigit).take(5) }, label = { Text("Port") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth()
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(
+                        onClick = { np.save(context, ai.alal.app.net.NetworkPrivacy.Route(np.SOCKS, host, port.toIntOrNull() ?: 1080)) },
+                        enabled = host.isNotBlank() && (port.toIntOrNull() ?: 0) in 1..65535
+                    ) { Text("Save", color = AlalBlue, fontWeight = FontWeight.SemiBold) }
+                }
+            }
+        }
     }
 }

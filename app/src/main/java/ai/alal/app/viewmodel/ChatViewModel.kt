@@ -15,6 +15,7 @@ import ai.alal.app.data.MessageDao
 import ai.alal.app.data.MessageEntity
 import ai.alal.app.data.ChatSessionEntity
 import ai.alal.app.data.availableModels
+import ai.alal.app.data.retiredModels
 import ai.alal.app.data.ModelConfig
 import ai.alal.app.data.validateCustomModel
 import ai.alal.app.data.DocumentWithChunkCount
@@ -45,7 +46,6 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
@@ -296,7 +296,8 @@ class ChatViewModel(
 
     /** Re-scan the filesystem for downloaded weights. Call after any download/delete. */
     fun refreshDownloadedModels() {
-        _downloadedModelIds.value = allModels.value
+        // Retired models are scanned too: they reappear in the hub only when on disk.
+        _downloadedModelIds.value = (availableModels + retiredModels + _customModels.value)
             .filter { llmEngineManager.isModelDownloaded(it) || llmEngineManager.isModelInAssets(it) }
             .map { it.id }
             .toSet()
@@ -309,7 +310,7 @@ class ChatViewModel(
     /** Re-scan for weight folders that no catalogue model claims. */
     fun refreshOrphanedWeights() {
         viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
-            val known = allModels.value.map { it.id }.toSet()
+            val known = (allModels.value + retiredModels).map { it.id }.toSet()
             val dirs = llmEngineManager.findOrphanedModelDirs(known)
             val bytes = dirs.sumOf { dir ->
                 dir.walkBottomUp().filter { it.isFile }.sumOf { it.length() }
@@ -321,7 +322,7 @@ class ChatViewModel(
     /** Delete unused weight folders and report how much space was reclaimed. */
     fun clearOrphanedWeights() {
         viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
-            val known = allModels.value.map { it.id }.toSet()
+            val known = (allModels.value + retiredModels).map { it.id }.toSet()
             val freedMb = llmEngineManager.deleteOrphanedModelDirs(known) / 1_048_576
             refreshOrphanedWeights()
             refreshDownloadedModels()
@@ -339,10 +340,30 @@ class ChatViewModel(
         prefs.edit().putString("hf_token", token).apply()
     }
 
+    /** Catalogue + retired-but-downloaded + custom, read directly (allModels is lazily shared). */
+    private fun currentModels(): List<ModelConfig> =
+        availableModels + retiredModels.filter { it.id in _downloadedModelIds.value } + _customModels.value
+
+    private val _catalog = MutableStateFlow(availableModels)
+
+    /** Manually check for a newer signed model list (the background check runs weekly). */
+    fun checkModelUpdates() {
+        viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
+            val status = ai.alal.app.inference.ModelCatalog.refresh(context)
+            _catalog.value = availableModels
+            refreshDownloadedModels()
+            refreshOrphanedWeights()
+            _errors.emit(status)
+        }
+    }
+
     val allModels: StateFlow<List<ModelConfig>> = combine(
-        MutableStateFlow(availableModels),
-        _customModels
-    ) { predefined, custom -> predefined + custom }.stateIn(
+        _catalog,
+        _customModels,
+        _downloadedModelIds
+    ) { predefined, custom, downloaded ->
+        predefined + retiredModels.filter { it.id in downloaded } + custom
+    }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
         availableModels
@@ -369,7 +390,7 @@ class ChatViewModel(
         refreshLegacyModels()
         observeDownloadService()
 
-        val compatibleModels = allModels.value.filter { llmEngineManager.isDeviceCapable(it) }
+        val compatibleModels = currentModels().filter { llmEngineManager.isDeviceCapable(it) }
         val lastModelId = prefs.getString("last_model_id", null)
         if (BuildConfig.DEBUG) android.util.Log.d("Alal", "Init: allModels=${allModels.value.map{it.id}}, compatibleModels=${compatibleModels.map{it.id}}, lastModelId=$lastModelId")
 
@@ -425,7 +446,7 @@ class ChatViewModel(
             viewModelScope.launch {
                 _errors.emit("${model.name} is not downloaded yet. Download it from the AI Hub tab first.")
             }
-            val compatibleModels = allModels.value.filter { llmEngineManager.isDeviceCapable(it) }
+            val compatibleModels = currentModels().filter { llmEngineManager.isDeviceCapable(it) }
             _uiState.value = ChatUiState.SelectingModel(compatibleModels)
             return
         }
@@ -449,7 +470,7 @@ class ChatViewModel(
     }
 
     fun switchModel() {
-        val compatibleModels = allModels.value.filter { llmEngineManager.isDeviceCapable(it) }
+        val compatibleModels = currentModels().filter { llmEngineManager.isDeviceCapable(it) }
         _uiState.value = ChatUiState.SelectingModel(compatibleModels)
     }
 
@@ -465,7 +486,7 @@ class ChatViewModel(
 
     fun exitDonation() {
         _uiState.value = if (llmEngineManager.currentModel.value != null) ChatUiState.Ready else {
-            val compatibleModels = allModels.value.filter { llmEngineManager.isDeviceCapable(it) }
+            val compatibleModels = currentModels().filter { llmEngineManager.isDeviceCapable(it) }
             ChatUiState.SelectingModel(compatibleModels)
         }
     }
@@ -515,7 +536,7 @@ class ChatViewModel(
     }
 
     suspend fun fetchPayPalOrderId(amount: Double): String = withContext(Dispatchers.IO) {
-        val client = OkHttpClient()
+        val client = ai.alal.app.net.NetworkPrivacy.client()
         val mediaType = "application/json; charset=utf-8".toMediaType()
         val json = JSONObject().apply {
             put("amount", amount)
@@ -535,7 +556,7 @@ class ChatViewModel(
     }
 
     suspend fun fetchStripeConfig(amount: Double): StripePaymentConfig = withContext(Dispatchers.IO) {
-        val client = OkHttpClient()
+        val client = ai.alal.app.net.NetworkPrivacy.client()
         val mediaType = "application/json; charset=utf-8".toMediaType()
         val json = JSONObject().apply {
             put("amount", (amount * 100).toInt())
@@ -646,7 +667,7 @@ class ChatViewModel(
             llmEngineManager.deleteModelFiles(model)
             _downloadedModelIds.update { it - model.id }
             viewModelScope.launch(Dispatchers.Main) {
-                val compatibleModels = allModels.value.filter { llmEngineManager.isDeviceCapable(it) }
+                val compatibleModels = currentModels().filter { llmEngineManager.isDeviceCapable(it) }
                 _uiState.value = ChatUiState.SelectingModel(compatibleModels)
                 downloadModel(model)
             }
@@ -658,7 +679,7 @@ class ChatViewModel(
             llmEngineManager.deleteModelFiles(model)
             _downloadedModelIds.update { it - model.id }
             viewModelScope.launch(Dispatchers.Main) {
-                val compatibleModels = allModels.value.filter { llmEngineManager.isDeviceCapable(it) }
+                val compatibleModels = currentModels().filter { llmEngineManager.isDeviceCapable(it) }
                 _uiState.value = ChatUiState.SelectingModel(compatibleModels)
             }
         }
@@ -761,7 +782,7 @@ class ChatViewModel(
                 _errors.emit(e.message ?: "Couldn't read that file")
                 return@launch
             }
-            if ((availableModels + _customModels.value).any { it.id == model.id }) {
+            if ((availableModels + retiredModels + _customModels.value).any { it.id == model.id }) {
                 _errors.emit("A model called \"${model.id}\" already exists")
                 return@launch
             }
@@ -1306,7 +1327,11 @@ class ChatViewModel(
                         thoughtTimeMs = finalThoughtTimeMs,
                         generationTimeMs = generateTimeMs,
                         tokensPerSecond = tps,
-                        text = finalGeneratingMsg.text.trim()
+                        // Action cards only when the user asked for an action: text from
+                        // messages, mail, web pages or documents can't trigger one.
+                        text = finalGeneratingMsg.text.trim().let {
+                            if (PhoneActionParser.looksLikeActionRequest(query)) it else PhoneActionParser.strip(it)
+                        }
                     )
 
                     _generatingMessage.value = null

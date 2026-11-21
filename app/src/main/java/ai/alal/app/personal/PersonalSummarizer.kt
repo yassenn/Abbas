@@ -109,14 +109,18 @@ object PersonalSummarizer {
         }
 
         val engine = LlamaEngineManager.shared(context)
+        // Summaries use their own model (chosen or recommended); chat's model is restored afterwards.
+        val target = SummaryModels.resolve(context, options.modelId)
+            ?: (if (engine.isReady) engine.currentModel.value else null)
+            ?: lastUsedModel(context)
+            ?: return DigestRunResult.Failed("No model downloaded. Get one in the AI Hub first.")
+        val previous = if (engine.isReady) engine.currentModel.value else null
         var loadedHere = false
-        if (!engine.isReady) {
-            val model = lastUsedModel(context)
-                ?: return DigestRunResult.Failed("No model loaded. Load one in Chat first.")
-            onProgress("Loading ${model.name}…")
-            val loaded = engine.initializeEngine(model) { _, _ -> }
+        if (!engine.isReady || previous?.id != target.id) {
+            onProgress("Loading ${target.name} for summaries…")
+            val loaded = engine.initializeEngine(target) { _, _ -> }
             if (loaded.isFailure) {
-                return DigestRunResult.Failed(loaded.exceptionOrNull()?.message ?: "Could not load the model")
+                return DigestRunResult.Failed(loaded.exceptionOrNull()?.message ?: "Could not load ${target.name}")
             }
             loadedHere = true
         }
@@ -190,8 +194,16 @@ object PersonalSummarizer {
             settings.lastRunAt = now
             return DigestRunResult.Done(pending.size, todoRows.size)
         } finally {
-            // Free RAM if we loaded the model only for this run and no chat is open.
-            if (loadedHere && !engine.uiAttached) engine.releaseIfIdle()
+            if (loadedHere) {
+                if (previous != null && previous.id != target.id && engine.uiAttached) {
+                    // Put the chat model back so the next chat message uses it.
+                    onProgress("Restoring ${previous.name}…")
+                    engine.initializeEngine(previous) { _, _ -> }
+                } else if (!engine.uiAttached) {
+                    // Free RAM if the model was loaded only for this run and no chat is open.
+                    engine.releaseIfIdle()
+                }
+            }
         }
     }
 
@@ -335,7 +347,7 @@ object PersonalSummarizer {
                 ?.toList().orEmpty()
                 .filter { validateCustomModel(it) == null }
         }.getOrDefault(emptyList())
-        val model = (availableModels + custom).find { it.id == id } ?: return null
+        val model = (availableModels + ai.alal.app.data.retiredModels + custom).find { it.id == id } ?: return null
         val engine = LlamaEngineManager.shared(context)
         return model.takeIf { engine.isModelDownloaded(it) || engine.isModelInAssets(it) }
             .also { if (it == null && BuildConfig.DEBUG) android.util.Log.d("Personal", "Last model $id not on disk") }

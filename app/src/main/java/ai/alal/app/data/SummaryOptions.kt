@@ -6,6 +6,8 @@ package ai.alal.app.data
  * or newer build falls back to the default instead of crashing.
  */
 data class SummaryOptions(
+    /** Model id for summaries; blank = the recommended downloaded model. */
+    val modelId: String = "",
     /** BRIEF | STANDARD | DETAILED */
     val length: String = "STANDARD",
     /** IMPORTANCE | PERSON | SOURCE | TIME */
