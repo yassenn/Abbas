@@ -142,7 +142,7 @@ object PersonalSummarizer {
             var todos = mutableListOf<ParsedTodo>()
             batches.forEachIndexed { i, batchItems ->
                 onProgress("Summarizing ${i + 1} of ${batches.size}…")
-                val parsed = generate(engine, formatItems(batchItems), system, gen)
+                val parsed = generate(engine, formatItems(batchItems, charBudget), system, gen)
                 summaryLines.addAll(parsed.summary)
                 todos.addAll(parsed.todos)
             }
@@ -310,24 +310,26 @@ object PersonalSummarizer {
         }
     }
 
-    internal fun formatItem(item: IngestedItemEntity): String {
+    /** [maxChars] caps the whole formatted line; an over-long body is cut and ends with "…". */
+    internal fun formatItem(item: IngestedItemEntity, maxChars: Int = Int.MAX_VALUE): String {
         // SimpleDateFormat isn't thread-safe and chat formats items too.
         val time = SimpleDateFormat("EEE d MMM HH:mm", Locale.US).format(Date(item.timestamp))
         val source = runCatching { PersonalSource.valueOf(item.source).label }.getOrDefault(item.source)
         val origin = listOfNotNull(item.app, item.sender ?: item.title).distinct().joinToString(" · ")
         val head = if (origin.isBlank()) "[$source $time]" else "[$source $time] $origin:"
-        return "$head ${item.body.replace('\n', ' ')}"
+        val line = "$head ${item.body.replace('\n', ' ')}"
+        return if (line.length <= maxChars) line else line.take((maxChars - 1).coerceAtLeast(0)) + "…".take(maxChars)
     }
 
-    private fun formatItems(items: List<IngestedItemEntity>): String =
-        "Recent activity:\n" + items.joinToString("\n") { formatItem(it) }
+    private fun formatItems(items: List<IngestedItemEntity>, budget: Int): String =
+        "Recent activity:\n" + items.joinToString("\n") { formatItem(it, budget) }
 
-    private fun batch(items: List<IngestedItemEntity>, budget: Int): List<List<IngestedItemEntity>> {
+    internal fun batch(items: List<IngestedItemEntity>, budget: Int): List<List<IngestedItemEntity>> {
         val out = mutableListOf<List<IngestedItemEntity>>()
         var current = mutableListOf<IngestedItemEntity>()
         var size = 0
         for (item in items) {
-            val len = formatItem(item).length.coerceAtMost(budget)
+            val len = formatItem(item, budget).length
             if (current.isNotEmpty() && size + len > budget) {
                 out += current; current = mutableListOf(); size = 0
             }
