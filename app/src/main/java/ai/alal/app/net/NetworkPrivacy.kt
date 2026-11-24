@@ -24,6 +24,7 @@ object NetworkPrivacy {
     const val TOR = "TOR"
     const val SOCKS = "SOCKS"
 
+    /** Proxy route settings: the mode (OFF, TOR or SOCKS) plus the proxy host and port. */
     data class Route(val mode: String = OFF, val host: String = "127.0.0.1", val port: Int = 9050)
 
     @Volatile var route: Route = Route()
@@ -33,6 +34,7 @@ object NetworkPrivacy {
     private const val KEY_HOST = "net_proxy_host"
     private const val KEY_PORT = "net_proxy_port"
 
+    /** Loads the saved proxy route from encrypted preferences into memory. */
     fun init(context: Context) {
         val p = SecurityUtils.getEncryptedPrefs(context)
         route = Route(
@@ -42,6 +44,7 @@ object NetworkPrivacy {
         )
     }
 
+    /** Persists the given route to encrypted preferences and makes it current, forcing Orbot's host and port for TOR. */
     fun save(context: Context, newRoute: Route) {
         val r = if (newRoute.mode == TOR) newRoute.copy(host = "127.0.0.1", port = 9050) else newRoute
         SecurityUtils.getEncryptedPrefs(context).edit()
