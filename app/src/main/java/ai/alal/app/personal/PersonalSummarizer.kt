@@ -33,6 +33,13 @@ sealed interface DigestRunResult {
  * and a to-do list. Used both by the background worker and the "Summarize now"
  * button; a process-wide lock keeps the two from running at once.
  */
+/**
+ * True if normalized to-do [n] duplicates the already-open normalized to-do [o]: either identical,
+ * or one contains the other and BOTH are long enough (> 12 chars) that containment is meaningful.
+ */
+internal fun isDuplicateTodo(n: String, o: String): Boolean =
+    o == n || (n.length > 12 && o.length > 12 && (o.contains(n) || n.contains(o)))
+
 object PersonalSummarizer {
 
     private val runLock = Mutex()
@@ -185,7 +192,7 @@ object PersonalSummarizer {
             }
             val todoRows = wanted.distinctBy { normalize(it.text) }.filter { t ->
                 val n = normalize(t.text)
-                open.none { o -> o == n || (n.length > 12 && (o.contains(n) || n.contains(o))) }
+                open.none { o -> isDuplicateTodo(n, o) }
             }.map {
                 TodoEntity(text = it.text, dueAt = it.dueAt, origin = "Digest", digestId = digestId, createdAt = now)
             }
