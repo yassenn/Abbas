@@ -49,15 +49,19 @@ object NetworkPrivacy {
         route = r
     }
 
-    private fun proxy(): Proxy? = route.takeIf { it.mode != OFF }?.let {
+    /** Pure mapping from a Route to its Proxy: OFF is DIRECT, TOR/SOCKS are unresolved SOCKS, any other mode throws. */
+    internal fun proxyFor(route: Route): Proxy = when (route.mode) {
+        OFF -> Proxy.NO_PROXY
         // Unresolved: the proxy (Tor) does the DNS lookup, not the phone.
-        Proxy(Proxy.Type.SOCKS, InetSocketAddress.createUnresolved(it.host, it.port))
+        TOR, SOCKS -> Proxy(Proxy.Type.SOCKS, InetSocketAddress.createUnresolved(route.host, route.port))
+        else -> throw IllegalStateException("Unknown proxy mode '${route.mode}': refusing to connect directly")
     }
 
     /** An OkHttp client that honours the current route. Build per use so changes apply at once. */
     fun client(configure: OkHttpClient.Builder.() -> Unit = {}): OkHttpClient =
         OkHttpClient.Builder().apply {
-            proxy()?.let { proxy(it) }
+            // DIRECT leaves OkHttp's default proxy selection untouched, as before.
+            proxyFor(route).takeIf { it.type() != Proxy.Type.DIRECT }?.let { proxy(it) }
             configure()
         }.build()
 
