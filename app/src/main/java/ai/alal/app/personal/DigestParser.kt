@@ -32,14 +32,14 @@ object DigestParser {
             val content = trimmed.replace(bullet, "").trim()
             if (content.isEmpty() || content.equals("none", true) || content.startsWith("none ", true)) continue
             when (section) {
-                2 -> parseTodo(content)?.let { todos += it }
+                2 -> parseTodoLine(content)?.let { todos += it }
                 else -> summary += content
             }
         }
         return ParsedDigest(summary.take(30), todos.take(20))
     }
 
-    private fun parseTodo(content: String): ParsedTodo? {
+    private fun parseTodoLine(content: String): ParsedTodo? {
         val parts = content.split(dueSplit, limit = 2)
         val task = parts[0].trim().trimEnd('|', '-', ' ')
         if (task.length < 3) return null
