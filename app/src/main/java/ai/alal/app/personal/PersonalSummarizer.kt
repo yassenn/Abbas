@@ -177,15 +177,14 @@ object PersonalSummarizer {
                 )
             )
             // Skip to-dos that duplicate ones already open ("Reply to Ana" twice in a row).
-            val open = dao.openTodos(300).map { normalize(it.text) }
+            val open = dao.openTodos(300).map { it.text }
             val wanted = when (options.todoMode) {
                 "OFF" -> emptyList()
                 "DEADLINES" -> todos.filter { it.dueAt != null }
                 else -> todos
             }
             val todoRows = wanted.distinctBy { normalize(it.text) }.filter { t ->
-                val n = normalize(t.text)
-                open.none { o -> o == n || (n.length > 12 && (o.contains(n) || n.contains(o))) }
+                open.none { o -> isDuplicateTodo(t.text, o) }
             }.map {
                 TodoEntity(text = it.text, dueAt = it.dueAt, origin = "Digest", digestId = digestId, createdAt = now)
             }
@@ -237,6 +236,19 @@ object PersonalSummarizer {
         }
 
     private fun normalize(s: String) = s.lowercase().replace(Regex("[^\\p{L}\\p{N} ]"), "").replace(Regex("\\s+"), " ").trim()
+
+    /**
+     * True when a new to-do repeats an open one: the same text once normalised, or one contains the other.
+     * Containment needs both sides to be long phrases, so a short or empty open to-do ("pay", "")
+     * can't suppress unrelated tasks.
+     */
+    internal fun isDuplicateTodo(newText: String, openText: String): Boolean {
+        val n = normalize(newText)
+        val o = normalize(openText)
+        if (n.isEmpty() || o.isEmpty()) return false
+        if (n == o) return true
+        return n.length > 12 && o.length > 12 && (o.contains(n) || n.contains(o))
+    }
 
     private val noisePatterns = listOf(
         Regex("(?i)\\b(otp|one[- ]time (pass)?code|verification code|security code|login code|2fa)\\b"),
