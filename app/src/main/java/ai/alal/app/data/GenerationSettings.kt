@@ -16,6 +16,8 @@ package ai.alal.app.data
  * - [seed] fixed seed for reproducible output (null = random).
  * - [enableThinking] let reasoning models emit a thinking trace before the
  *   answer. Off = fast direct answers (JNI closes the trace block immediately).
+ * - [webSearchEnabled] master switch for web search. Off = no web search
+ *   requests are ever made, regardless of the composer's per-chat toggle.
  */
 data class GenerationSettings(
     val temperature: Float = 0.7f,
@@ -24,5 +26,6 @@ data class GenerationSettings(
     val presencePenalty: Float = 0.0f,
     val maxTokens: Int = 2048,
     val seed: Int? = null,
-    val enableThinking: Boolean = true
+    val enableThinking: Boolean = true,
+    val webSearchEnabled: Boolean = true
 )

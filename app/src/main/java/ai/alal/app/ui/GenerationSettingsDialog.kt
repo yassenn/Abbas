@@ -36,6 +36,7 @@ fun GenerationSettingsDialog(
     var maxTokens by remember { mutableStateOf(settings.maxTokens.toFloat()) }
     var seedText by remember { mutableStateOf(settings.seed?.toString() ?: "") }
     var enableThinking by remember { mutableStateOf(settings.enableThinking) }
+    var webSearchEnabled by remember { mutableStateOf(settings.webSearchEnabled) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -124,6 +125,34 @@ fun GenerationSettingsDialog(
                     )
                 }
 
+                // Web search master switch: off = no web search requests are made.
+                var showWebSearchInfo by remember { mutableStateOf(false) }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Web search", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                        Spacer(Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Outlined.Info,
+                            contentDescription = "About Web search",
+                            tint = if (showWebSearchInfo) AlalBlue else Color.Gray.copy(alpha = 0.7f),
+                            modifier = Modifier.size(16.dp).clickable { showWebSearchInfo = !showWebSearchInfo }
+                        )
+                    }
+                    Switch(checked = webSearchEnabled, onCheckedChange = { webSearchEnabled = it })
+                }
+                if (showWebSearchInfo) {
+                    Text(
+                        "Allows the chat's web search toggle to look up current information online. " +
+                            "Turn off to make sure no web search requests are ever sent.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
                 // Seed with info icon
                 var showSeedInfo by remember { mutableStateOf(false) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -165,6 +194,7 @@ fun GenerationSettingsDialog(
                         maxTokens = 2048f
                         seedText = ""
                         enableThinking = true
+                        webSearchEnabled = true
                     },
                     modifier = Modifier.align(Alignment.CenterHorizontally)
                 ) {
@@ -183,7 +213,8 @@ fun GenerationSettingsDialog(
                             presencePenalty = presencePenalty,
                             maxTokens = maxTokens.roundToInt().coerceIn(64, 2048),
                             seed = seedText.toIntOrNull(),
-                            enableThinking = enableThinking
+                            enableThinking = enableThinking,
+                            webSearchEnabled = webSearchEnabled
                         )
                     )
                 },

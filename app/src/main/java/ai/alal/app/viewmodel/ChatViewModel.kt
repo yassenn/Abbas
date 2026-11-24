@@ -117,6 +117,7 @@ class ChatViewModel(
             .putInt("gen_max_tokens", settings.maxTokens)
             .putInt("gen_seed", settings.seed ?: -1)
             .putBoolean("gen_enable_thinking", settings.enableThinking)
+            .putBoolean("gen_web_search_enabled", settings.webSearchEnabled)
             .apply()
     }
 
@@ -128,7 +129,8 @@ class ChatViewModel(
             presencePenalty = prefs.getFloat("gen_presence_penalty", 0.0f),
             maxTokens = prefs.getInt("gen_max_tokens", 2048),
             seed = prefs.getInt("gen_seed", -1).takeIf { it >= 0 },
-            enableThinking = prefs.getBoolean("gen_enable_thinking", true)
+            enableThinking = prefs.getBoolean("gen_enable_thinking", true),
+            webSearchEnabled = prefs.getBoolean("gen_web_search_enabled", true)
         )
     }
 
@@ -943,7 +945,7 @@ class ChatViewModel(
             val personalOnly = personalSettings.anySourceEnabled && phoneWords.containsMatchIn(text) &&
                 !explicitWebWords.containsMatchIn(text)
             var webContext = ""
-            if (_isWebSearchEnabled.value && !personalOnly) {
+            if (_generationSettings.value.webSearchEnabled && _isWebSearchEnabled.value && !personalOnly) {
                 webContext = try {
                     val results = withContext(Dispatchers.IO) {
                         WebSearchRepository.searchWithContent(searchQuery.take(200), maxResults = 3)
@@ -1033,7 +1035,7 @@ class ChatViewModel(
                 // NB: never log finalContext — it contains the user's query and document text.
                 android.util.Log.d(
                     "RAG",
-                    "Retrieved ${contextChunks.size} local chunks. Web search enabled=${_isWebSearchEnabled.value}."
+                    "Retrieved ${contextChunks.size} local chunks. Web search enabled=${_generationSettings.value.webSearchEnabled && _isWebSearchEnabled.value}."
                 )
             }
             generateInternal(text, sessionId, botMessageId, finalContext)
