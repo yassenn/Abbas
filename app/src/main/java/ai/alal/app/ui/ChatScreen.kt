@@ -61,6 +61,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
     val currentSessionId by viewModel.currentSessionId.collectAsState()
     val currentModel by viewModel.currentModel.collectAsState()
     val isWebSearchEnabled by viewModel.isWebSearchEnabled.collectAsState()
+    val webSearchAllowed by viewModel.webSearchAllowed.collectAsState()
     val generationSettings by viewModel.generationSettings.collectAsState()
     val documents by viewModel.documents.collectAsState()
     val attachedDocuments by viewModel.attachedDocuments.collectAsState()
@@ -168,7 +169,9 @@ fun ChatScreen(viewModel: ChatViewModel) {
             onGenerationSettings = {
                 showSettings = false
                 showGenerationSettings = true
-            }
+            },
+            webSearchAllowed = webSearchAllowed,
+            onWebSearchAllowedChange = { viewModel.setWebSearchAllowed(it) }
         )
     }
 
@@ -767,6 +770,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                                 onAddExisting = { showDocumentPicker = true },
                                 isWebSearchEnabled = isWebSearchEnabled,
                                 onToggleWebSearch = { viewModel.toggleWebSearch() },
+                                webSearchAllowed = webSearchAllowed,
                                 isThinkingEnabled = generationSettings.enableThinking,
                                 onToggleThinking = { viewModel.toggleThinking() },
                                 attachedDocuments = attachedDocuments,
@@ -805,7 +809,9 @@ private fun SettingsSheet(
     currentTab: AppTab,
     onDismiss: () -> Unit,
     onSelectTab: (AppTab) -> Unit,
-    onGenerationSettings: () -> Unit
+    onGenerationSettings: () -> Unit,
+    webSearchAllowed: Boolean,
+    onWebSearchAllowedChange: (Boolean) -> Unit
 ) {
     val itemColors = NavigationDrawerItemDefaults.colors(
         unselectedContainerColor = Color.Transparent,
@@ -861,6 +867,29 @@ private fun SettingsSheet(
                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
                 colors = itemColors
             )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 28.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Outlined.Public, contentDescription = null, tint = if (webSearchAllowed) AlalBlue else Color.Gray)
+                Spacer(Modifier.width(16.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Web search", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Off means no web requests are made, even when the composer toggle is on.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray
+                    )
+                }
+                Switch(
+                    checked = webSearchAllowed,
+                    onCheckedChange = onWebSearchAllowedChange,
+                    colors = SwitchDefaults.colors(checkedTrackColor = AlalBlue)
+                )
+            }
 
             Text(
                 text = APP_VERSION,
@@ -1341,6 +1370,7 @@ fun MessageInput(
     onAddExisting: () -> Unit = {},
     isWebSearchEnabled: Boolean,
     onToggleWebSearch: () -> Unit,
+    webSearchAllowed: Boolean = true,
     isThinkingEnabled: Boolean,
     onToggleThinking: () -> Unit,
     attachedDocuments: List<IngestedDocument> = emptyList(),
@@ -1420,6 +1450,7 @@ fun MessageInput(
                             trailingIcon = {
                                 if (isWebSearchEnabled) Icon(Icons.Default.Check, contentDescription = null, tint = AlalBlue)
                             },
+                            enabled = webSearchAllowed,
                             onClick = { onToggleWebSearch() }
                         )
                         DropdownMenuItem(

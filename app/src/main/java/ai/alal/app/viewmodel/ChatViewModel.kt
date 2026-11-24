@@ -98,7 +98,19 @@ class ChatViewModel(
     private val _isWebSearchEnabled = MutableStateFlow(false)
     val isWebSearchEnabled: StateFlow<Boolean> = _isWebSearchEnabled.asStateFlow()
 
+    // Master switch from Settings. When off, no web search request is made, whatever the
+    // per-chat composer toggle says. Persisted; defaults to on.
+    private val _webSearchAllowed = MutableStateFlow(prefs.getBoolean("web_search_allowed", true))
+    val webSearchAllowed: StateFlow<Boolean> = _webSearchAllowed.asStateFlow()
+
+    fun setWebSearchAllowed(allowed: Boolean) {
+        _webSearchAllowed.value = allowed
+        prefs.edit().putBoolean("web_search_allowed", allowed).apply()
+        if (!allowed) _isWebSearchEnabled.value = false
+    }
+
     fun toggleWebSearch() {
+        if (!_webSearchAllowed.value) return
         _isWebSearchEnabled.value = !_isWebSearchEnabled.value
     }
 
@@ -943,7 +955,8 @@ class ChatViewModel(
             val personalOnly = personalSettings.anySourceEnabled && phoneWords.containsMatchIn(text) &&
                 !explicitWebWords.containsMatchIn(text)
             var webContext = ""
-            if (_isWebSearchEnabled.value && !personalOnly) {
+            // Settings master switch first: when off, no request leaves the device.
+            if (_webSearchAllowed.value && _isWebSearchEnabled.value && !personalOnly) {
                 webContext = try {
                     val results = withContext(Dispatchers.IO) {
                         WebSearchRepository.searchWithContent(searchQuery.take(200), maxResults = 3)
@@ -1033,7 +1046,7 @@ class ChatViewModel(
                 // NB: never log finalContext — it contains the user's query and document text.
                 android.util.Log.d(
                     "RAG",
-                    "Retrieved ${contextChunks.size} local chunks. Web search enabled=${_isWebSearchEnabled.value}."
+                    "Retrieved ${contextChunks.size} local chunks. Web search enabled=${_webSearchAllowed.value && _isWebSearchEnabled.value}."
                 )
             }
             generateInternal(text, sessionId, botMessageId, finalContext)
