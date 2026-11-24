@@ -142,7 +142,7 @@ object PersonalSummarizer {
             var todos = mutableListOf<ParsedTodo>()
             batches.forEachIndexed { i, batchItems ->
                 onProgress("Summarizing ${i + 1} of ${batches.size}…")
-                val parsed = generate(engine, formatItems(batchItems), system, gen)
+                val parsed = generate(engine, formatItems(batchItems, charBudget), system, gen)
                 summaryLines.addAll(parsed.summary)
                 todos.addAll(parsed.todos)
             }
@@ -310,24 +310,36 @@ object PersonalSummarizer {
         }
     }
 
-    internal fun formatItem(item: IngestedItemEntity): String {
+    /**
+     * Formats one item as a prompt line. With [maxChars], the body is cut (marked with "…")
+     * so the line never exceeds that length; the header is kept intact.
+     */
+    internal fun formatItem(item: IngestedItemEntity, maxChars: Int = Int.MAX_VALUE): String {
         // SimpleDateFormat isn't thread-safe and chat formats items too.
         val time = SimpleDateFormat("EEE d MMM HH:mm", Locale.US).format(Date(item.timestamp))
         val source = runCatching { PersonalSource.valueOf(item.source).label }.getOrDefault(item.source)
         val origin = listOfNotNull(item.app, item.sender ?: item.title).distinct().joinToString(" · ")
         val head = if (origin.isBlank()) "[$source $time]" else "[$source $time] $origin:"
-        return "$head ${item.body.replace('\n', ' ')}"
+        val prefix = "$head "
+        val body = item.body.replace('\n', ' ')
+        val full = prefix + body
+        if (full.length <= maxChars) return full
+        val room = maxChars - prefix.length - ELLIPSIS.length
+        if (room > 0) return prefix + body.take(room) + ELLIPSIS
+        return full.take(maxChars) // budget too small even for the header
     }
 
-    private fun formatItems(items: List<IngestedItemEntity>): String =
-        "Recent activity:\n" + items.joinToString("\n") { formatItem(it) }
+    private const val ELLIPSIS = "…"
 
-    private fun batch(items: List<IngestedItemEntity>, budget: Int): List<List<IngestedItemEntity>> {
+    private fun formatItems(items: List<IngestedItemEntity>, budget: Int): String =
+        "Recent activity:\n" + items.joinToString("\n") { formatItem(it, budget) }
+
+    internal fun batch(items: List<IngestedItemEntity>, budget: Int): List<List<IngestedItemEntity>> {
         val out = mutableListOf<List<IngestedItemEntity>>()
         var current = mutableListOf<IngestedItemEntity>()
         var size = 0
         for (item in items) {
-            val len = formatItem(item).length.coerceAtMost(budget)
+            val len = formatItem(item, budget).length
             if (current.isNotEmpty() && size + len > budget) {
                 out += current; current = mutableListOf(); size = 0
             }
