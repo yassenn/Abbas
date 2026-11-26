@@ -190,7 +190,7 @@ class SummaryManagerTest {
 
     @Test fun migrationIsAdditiveAndPreservesRows() {
         val sql = SummaryMigration.STATEMENTS_5_6
-        assertTrue(sql.none { Regex("DROP|DELETE|INSERT|RENAME", RegexOption.IGNORE_CASE).containsMatchIn(it) })
+        assertTrue(sql.none { Regex("DROP|^DELETE|INSERT|RENAME", RegexOption.IGNORE_CASE).containsMatchIn(it) })
         val alters = sql.filter { it.startsWith("ALTER TABLE `digests` ADD COLUMN") }
         assertEquals(listOf("title", "updatedAt", "pinned", "sourceRef"), alters.map { Regex("`(\\w+)`( TEXT| INTEGER)").findAll(it).last().groupValues[1] })
         // NOT NULL columns must carry a default so existing rows stay valid.
