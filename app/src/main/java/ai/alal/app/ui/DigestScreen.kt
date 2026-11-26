@@ -13,6 +13,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
@@ -24,6 +26,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -99,6 +103,70 @@ private fun SummariesPage(viewModel: PersonalViewModel, sources: SourceState, on
     val progress by viewModel.progress.collectAsState()
     val routine by viewModel.routine.collectAsState()
     var showErase by remember { mutableStateOf(false) }
+    val linkCounts by viewModel.linkCounts.collectAsState()
+    val busy by viewModel.summaryBusy.collectAsState()
+    var selecting by rememberSaveable { mutableStateOf(false) }
+    var selected by remember { mutableStateOf(emptySet<Long>()) }
+    var renaming by remember { mutableStateOf<DigestEntity?>(null) }
+    var deleting by remember { mutableStateOf<DigestEntity?>(null) }
+    var showParentsOf by remember { mutableStateOf<DigestEntity?>(null) }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+
+    renaming?.let { target ->
+        var text by remember(target.id) { mutableStateOf(target.title.orEmpty()) }
+        AlertDialog(
+            onDismissRequest = { renaming = null },
+            title = { Text("Rename summary") },
+            text = {
+                OutlinedTextField(
+                    value = text, onValueChange = { text = it.take(80) }, singleLine = true,
+                    label = { Text("Name") }, placeholder = { Text(formatStamp(target.createdAt)) }
+                )
+            },
+            confirmButton = { TextButton(onClick = { viewModel.renameDigest(target, text); renaming = null }) { Text("Save") } },
+            dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancel") } }
+        )
+    }
+    deleting?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            title = { Text("Delete \"${displayTitle(target)}\"?") },
+            text = { Text("Only this summary is deleted. Summaries it was combined from, or combined from it, are kept.") },
+            confirmButton = {
+                TextButton(onClick = { viewModel.deleteDigest(target); selected = selected - target.id; deleting = null }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } }
+        )
+    }
+    showParentsOf?.let { child ->
+        var parents by remember(child.id) { mutableStateOf<List<DigestEntity>?>(null) }
+        LaunchedEffect(child.id) { parents = viewModel.parentsOf(child.id) }
+        AlertDialog(
+            onDismissRequest = { showParentsOf = null },
+            title = { Text("Generated from") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    val list = parents
+                    if (list == null) CircularProgressIndicator(Modifier.size(20.dp))
+                    else if (list.isEmpty()) Text("The source summaries were deleted.")
+                    else list.forEach { p ->
+                        TextButton(onClick = {
+                            showParentsOf = null
+                            val index = digests.indexOfFirst { it.id == p.id }
+                            // Rows above the summaries: control card, [turn-on hint], 4 cards, to-do header, to-dos, header, [select bar].
+                            val above = 1 + (if (!sources.anyOn()) 1 else 0) + 4 + 1 + maxOf(1, todos.size) + 1 +
+                                (if (selecting && !busy) 1 else 0)
+                            if (index >= 0) scope.launch { listState.animateScrollToItem(above + index) }
+                        }) { Text(displayTitle(p), maxLines = 1) }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showParentsOf = null }) { Text("Close") } }
+        )
+    }
 
     if (showErase) {
         AlertDialog(
@@ -115,6 +183,7 @@ private fun SummariesPage(viewModel: PersonalViewModel, sources: SourceState, on
     }
 
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -161,12 +230,48 @@ private fun SummariesPage(viewModel: PersonalViewModel, sources: SourceState, on
             }
         }
 
-        item { SectionHeader("Summaries", Icons.Outlined.AutoAwesome) }
+        item {
+            SectionHeader("Summaries", Icons.Outlined.AutoAwesome) {
+                if (busy) {
+                    TextButton(onClick = viewModel::cancelSummaryTask) { Text("Cancel") }
+                } else if (digests.size >= 2) {
+                    TextButton(onClick = { selecting = !selecting; selected = emptySet() }) {
+                        Text(if (selecting) "Done" else "Select")
+                    }
+                }
+            }
+        }
+        if (selecting && !busy) {
+            item {
+                Button(
+                    onClick = { viewModel.summarizeSummaries(selected); selecting = false; selected = emptySet() },
+                    enabled = selected.size >= 2,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Outlined.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (selected.size >= 2) "Summarize ${selected.size} summaries" else "Select 2 or more to summarize")
+                }
+            }
+        }
         if (digests.isEmpty()) {
             item { EmptyLine("No summaries yet. Turn on a data source and tap Summarize now.") }
         } else {
             items(digests, key = { "digest-${it.id}" }) { digest ->
-                DigestCard(digest, onDelete = { viewModel.deleteDigest(digest) })
+                DigestCard(
+                    digest = digest,
+                    parentCount = linkCounts[digest.id] ?: 0,
+                    selecting = selecting,
+                    selected = digest.id in selected,
+                    busy = busy,
+                    onToggleSelect = { selected = if (digest.id in selected) selected - digest.id else selected + digest.id },
+                    onCopy = { viewModel.copyDigest(digest) },
+                    onRename = { renaming = digest },
+                    onPin = { viewModel.setDigestPinned(digest, !digest.pinned) },
+                    onRegenerate = { viewModel.regenerateDigest(digest) },
+                    onDelete = { deleting = digest },
+                    onOpenParents = { showParentsOf = digest }
+                )
             }
         }
 
@@ -623,20 +728,84 @@ private fun TodoRow(todo: TodoEntity, onToggle: (Boolean) -> Unit, onDelete: () 
 }
 
 @Composable
-private fun DigestCard(digest: DigestEntity, onDelete: () -> Unit) {
-    OutlinedCard(shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, Color.Gray.copy(alpha = 0.15f))) {
+private fun DigestCard(
+    digest: DigestEntity,
+    parentCount: Int,
+    selecting: Boolean,
+    selected: Boolean,
+    busy: Boolean,
+    onToggleSelect: () -> Unit,
+    onCopy: () -> Unit,
+    onRename: () -> Unit,
+    onPin: () -> Unit,
+    onRegenerate: () -> Unit,
+    onDelete: () -> Unit,
+    onOpenParents: () -> Unit
+) {
+    var menu by remember { mutableStateOf(false) }
+    val title = displayTitle(digest)
+    OutlinedCard(
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) AlalBlue else Color.Gray.copy(alpha = 0.15f))
+    ) {
         Column(Modifier.padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                if (selecting) {
+                    Checkbox(
+                        checked = selected,
+                        onCheckedChange = { onToggleSelect() },
+                        modifier = Modifier.semantics { contentDescription = "Select summary $title" },
+                        colors = CheckboxDefaults.colors(checkedColor = AlalBlue)
+                    )
+                }
                 Column(Modifier.weight(1f)) {
-                    Text(formatStamp(digest.createdAt), fontWeight = FontWeight.SemiBold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (digest.pinned) {
+                            Icon(Icons.Outlined.PushPin, contentDescription = "Pinned", tint = AlalBlue, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                        }
+                        Text(title, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    }
                     Text(
                         "${digest.itemCount} items · ${formatStamp(digest.periodStart)} – ${formatStamp(digest.periodEnd)}",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.Gray
                     )
                 }
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Outlined.Delete, contentDescription = "Delete summary", tint = Color.Gray, modifier = Modifier.size(18.dp))
+                Box {
+                    IconButton(onClick = { menu = true }) {
+                        Icon(Icons.Outlined.MoreVert, contentDescription = "More actions for $title", tint = Color.Gray, modifier = Modifier.size(20.dp))
+                    }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Copy") }, leadingIcon = { Icon(Icons.Outlined.ContentCopy, null) },
+                            onClick = { menu = false; onCopy() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Rename") }, leadingIcon = { Icon(Icons.Outlined.Edit, null) },
+                            onClick = { menu = false; onRename() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (digest.pinned) "Unpin" else "Pin") }, leadingIcon = { Icon(Icons.Outlined.PushPin, null) },
+                            onClick = { menu = false; onPin() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Regenerate") }, leadingIcon = { Icon(Icons.Outlined.Refresh, null) },
+                            enabled = !busy, onClick = { menu = false; onRegenerate() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete") }, leadingIcon = { Icon(Icons.Outlined.Delete, null) },
+                            onClick = { menu = false; onDelete() }
+                        )
+                    }
+                }
+            }
+            if (parentCount > 0) {
+                TextButton(onClick = onOpenParents, contentPadding = PaddingValues(0.dp)) {
+                    Text(
+                        "Generated from $parentCount ${if (parentCount == 1) "summary" else "summaries"} · Show sources",
+                        style = MaterialTheme.typography.labelMedium, color = AlalBlue
+                    )
                 }
             }
             Material3RichText(Modifier.padding(end = 12.dp, top = 4.dp)) {
@@ -656,5 +825,7 @@ private fun folderName(treeUri: String): String = try {
 } catch (_: Exception) {
     treeUri
 }
+
+private fun displayTitle(d: DigestEntity): String = d.title?.takeIf { it.isNotBlank() } ?: formatStamp(d.createdAt)
 
 private fun formatStamp(at: Long): String = SimpleDateFormat("EEE d MMM, HH:mm", Locale.getDefault()).format(Date(at))

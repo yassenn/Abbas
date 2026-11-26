@@ -9,6 +9,17 @@ import ai.alal.app.data.AppDatabase
 import ai.alal.app.data.DigestEntity
 import ai.alal.app.data.SourceCount
 import ai.alal.app.data.TodoEntity
+import ai.alal.app.data.GenerationSettings
+import ai.alal.app.personal.LocalSummaryGenerator
+import ai.alal.app.personal.RoomSummaryStore
+import ai.alal.app.personal.SensitiveClipboard
+import ai.alal.app.personal.SummaryException
+import ai.alal.app.personal.SummaryGenerator
+import ai.alal.app.personal.SummaryManager
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import ai.alal.app.personal.DigestRunResult
 import ai.alal.app.personal.PersonalDigestWorker
 import ai.alal.app.personal.PersonalSettings
@@ -354,7 +365,84 @@ class PersonalViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteTodo(todo: TodoEntity) = viewModelScope.launch(Dispatchers.IO) { dao.deleteTodo(todo.id) }
     fun clearDoneTodos() = viewModelScope.launch(Dispatchers.IO) { dao.deleteDoneTodos() }
-    fun deleteDigest(digest: DigestEntity) = viewModelScope.launch(Dispatchers.IO) { dao.deleteDigest(digest.id) }
+    // ── Per-summary management (each call affects exactly one summary) ──
+
+    private val store = RoomSummaryStore(AppDatabase.getInstance(app))
+    /** Management that never needs the model (rename, pin, delete). */
+    private val crud = SummaryManager(store, object : SummaryGenerator {
+        override val charBudget = 0
+        override suspend fun generate(system: String, prompt: String): String = throw SummaryException("No model")
+    })
+    private var summaryJob: Job? = null
+    private val _summaryBusy = MutableStateFlow(false)
+    /** True while a cancellable summarize/regenerate job runs. */
+    val summaryBusy: StateFlow<Boolean> = _summaryBusy.asStateFlow()
+
+    /** How many parents each summary was generated from (absent = none). */
+    val linkCounts: StateFlow<Map<Long, Int>> = dao.linkCounts()
+        .map { rows -> rows.associate { it.childId to it.count } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    suspend fun parentsOf(id: Long): List<DigestEntity> = withContext(Dispatchers.IO) { dao.parentsOf(id) }
+
+    fun deleteDigest(digest: DigestEntity) = viewModelScope.launch(Dispatchers.IO) { crud.delete(digest.id) }
+    fun renameDigest(digest: DigestEntity, title: String) = viewModelScope.launch(Dispatchers.IO) { crud.rename(digest.id, title) }
+    fun setDigestPinned(digest: DigestEntity, pinned: Boolean) = viewModelScope.launch(Dispatchers.IO) { crud.setPinned(digest.id, pinned) }
+
+    fun copyDigest(digest: DigestEntity) {
+        SensitiveClipboard.copy(getApplication(), digest.summary)
+        _message.value = "Copied. The clipboard clears in a minute."
+    }
+
+    /** Combines 2+ summaries into a NEW linked summary using the on-device model only. */
+    fun summarizeSummaries(ids: Collection<Long>) =
+        runSummaryTask("Combining ${ids.size} summaries…") { it.summarizeSummaries(ids.toList(), ::setProgress); "Created a combined summary" }
+
+    /** Re-runs one summary from its original source, replacing only its text. */
+    fun regenerateDigest(digest: DigestEntity) =
+        runSummaryTask("Regenerating…") { it.regenerate(digest.id, ::setProgress); "Summary regenerated" }
+
+    fun cancelSummaryTask() { summaryJob?.cancel() }
+
+    private fun setProgress(text: String) { _progress.value = text }
+
+    private fun runSummaryTask(start: String, work: suspend (SummaryManager) -> String) {
+        if (_progress.value != null) return
+        _progress.value = start
+        _summaryBusy.value = true
+        summaryJob = viewModelScope.launch {
+            try {
+                val msg = withContext(Dispatchers.Default) {
+                    PersonalSummarizer.exclusive {
+                        PersonalSummarizer.withSummaryEngine(getApplication(), ::setProgress) { engine ->
+                            val gen = GenerationSettings(
+                                temperature = 0.3f, topP = 0.9f,
+                                maxTokens = settings.summaryOptions.maxTokens, enableThinking = false
+                            )
+                            work(
+                                SummaryManager(
+                                    store, LocalSummaryGenerator(engine, gen),
+                                    itemsSystemPrompt = { PersonalSummarizer.systemPrompt(settings.summaryInstructions, settings.summaryOptions) }
+                                )
+                            )
+                        }
+                    } ?: "A summary is already running in the background"
+                }
+                _message.value = msg
+            } catch (e: CancellationException) {
+                _message.value = "Cancelled"
+                throw e
+            } catch (e: SummaryException) {
+                _message.value = e.message ?: "Summary failed"
+            } catch (e: Exception) {
+                _message.value = "Summary failed" // never include content in messages
+            } finally {
+                _progress.value = null
+                _summaryBusy.value = false
+                summaryJob = null
+            }
+        }
+    }
 
     /** Wipes everything collected or generated, and restarts collection from now. */
     fun eraseAll() = viewModelScope.launch(Dispatchers.IO) {

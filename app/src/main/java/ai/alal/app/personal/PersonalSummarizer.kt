@@ -108,24 +108,68 @@ object PersonalSummarizer {
             return DigestRunResult.NothingNew
         }
 
+        return try {
+            withSummaryEngine(context, onProgress) { engine -> summarizeItems(engine, settings, options, dao, pending, onProgress) }
+        } catch (e: SummaryException) {
+            DigestRunResult.Failed(e.message ?: "Summary failed")
+        }
+    }
+
+    /**
+     * Loads the summary model (chosen or recommended), runs [block], then restores chat's
+     * model or frees RAM. Local inference only. Throws [SummaryException] if no model loads.
+     */
+    suspend fun <T> withSummaryEngine(
+        context: Context,
+        onProgress: (String) -> Unit,
+        block: suspend (LlamaEngineManager) -> T
+    ): T {
+        val options = PersonalSettings(context).summaryOptions
         val engine = LlamaEngineManager.shared(context)
-        // Summaries use their own model (chosen or recommended); chat's model is restored afterwards.
         val target = SummaryModels.resolve(context, options.modelId)
             ?: (if (engine.isReady) engine.currentModel.value else null)
             ?: lastUsedModel(context)
-            ?: return DigestRunResult.Failed("No model downloaded. Get one in the AI Hub first.")
+            ?: throw SummaryException("No model downloaded. Get one in the AI Hub first.")
         val previous = if (engine.isReady) engine.currentModel.value else null
         var loadedHere = false
         if (!engine.isReady || previous?.id != target.id) {
             onProgress("Loading ${target.name} for summaries…")
             val loaded = engine.initializeEngine(target) { _, _ -> }
             if (loaded.isFailure) {
-                return DigestRunResult.Failed(loaded.exceptionOrNull()?.message ?: "Could not load ${target.name}")
+                throw SummaryException(loaded.exceptionOrNull()?.message ?: "Could not load ${target.name}")
             }
             loadedHere = true
         }
-
         try {
+            return block(engine)
+        } finally {
+            if (loadedHere) {
+                if (previous != null && previous.id != target.id && engine.uiAttached) {
+                    // Put the chat model back so the next chat message uses it.
+                    onProgress("Restoring ${previous.name}…")
+                    engine.initializeEngine(previous) { _, _ -> }
+                } else if (!engine.uiAttached) {
+                    // Free RAM if the model was loaded only for this run and no chat is open.
+                    engine.releaseIfIdle()
+                }
+            }
+        }
+    }
+
+    /** Runs [block] under the same lock as digest runs so two model jobs never overlap. Null if busy. */
+    suspend fun <T> exclusive(block: suspend () -> T): T? {
+        if (!runLock.tryLock()) return null
+        try { return block() } finally { runLock.unlock() }
+    }
+
+    private suspend fun summarizeItems(
+        engine: LlamaEngineManager,
+        settings: PersonalSettings,
+        options: ai.alal.app.data.SummaryOptions,
+        dao: ai.alal.app.data.PersonalDao,
+        pending: List<IngestedItemEntity>,
+        onProgress: (String) -> Unit
+    ): DigestRunResult {
             val contextSize = engine.currentModel.value?.contextSize ?: 4096
             // ~3 chars per token; keep half the window for the prompt scaffolding + answer.
             val charBudget = (contextSize * 3 / 2).coerceIn(1_500, 12_000)
@@ -173,7 +217,9 @@ object PersonalSummarizer {
                     periodEnd = pending.maxOf { it.timestamp },
                     itemCount = pending.size,
                     summary = summaryLines.ifEmpty { listOf("Nothing important.") }
-                        .joinToString("\n") { "- $it" }
+                        .joinToString("\n") { "- $it" },
+                    updatedAt = now,
+                    sourceRef = ai.alal.app.data.SummaryOrigin.ITEMS
                 )
             )
             // Skip to-dos that duplicate ones already open ("Reply to Ana" twice in a row).
@@ -193,18 +239,6 @@ object PersonalSummarizer {
             dao.markSummarized(pending.map { it.id })
             settings.lastRunAt = now
             return DigestRunResult.Done(pending.size, todoRows.size)
-        } finally {
-            if (loadedHere) {
-                if (previous != null && previous.id != target.id && engine.uiAttached) {
-                    // Put the chat model back so the next chat message uses it.
-                    onProgress("Restoring ${previous.name}…")
-                    engine.initializeEngine(previous) { _, _ -> }
-                } else if (!engine.uiAttached) {
-                    // Free RAM if the model was loaded only for this run and no chat is open.
-                    engine.releaseIfIdle()
-                }
-            }
-        }
     }
 
     private suspend fun generate(

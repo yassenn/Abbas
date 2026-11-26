@@ -52,8 +52,37 @@ interface PersonalDao {
     @Insert
     suspend fun insertDigest(digest: DigestEntity): Long
 
-    @Query("SELECT * FROM digests ORDER BY createdAt DESC LIMIT 50")
+    /** Pinned first, then newest first. */
+    @Query("SELECT * FROM digests ORDER BY pinned DESC, createdAt DESC LIMIT 200")
     fun digests(): Flow<List<DigestEntity>>
+
+    @Query("SELECT * FROM digests WHERE id = :id")
+    suspend fun digest(id: Long): DigestEntity?
+
+    @Query("UPDATE digests SET title = :title, updatedAt = :now WHERE id = :id")
+    suspend fun renameDigest(id: Long, title: String?, now: Long)
+
+    @Query("UPDATE digests SET pinned = :pinned WHERE id = :id")
+    suspend fun setDigestPinned(id: Long, pinned: Boolean)
+
+    @Query("UPDATE digests SET summary = :summary, updatedAt = :now WHERE id = :id")
+    suspend fun updateDigestText(id: Long, summary: String, now: Long)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertLinks(links: List<SummaryLinkEntity>)
+
+    /** Parents of [childId], in the order they were linked. */
+    @Query(
+        "SELECT d.* FROM digests d JOIN summary_links l ON l.parentId = d.id " +
+            "WHERE l.childId = :childId ORDER BY d.createdAt ASC"
+    )
+    suspend fun parentsOf(childId: Long): List<DigestEntity>
+
+    @Query("SELECT childId, COUNT(*) AS count FROM summary_links GROUP BY childId")
+    fun linkCounts(): Flow<List<LinkCount>>
+
+    @Query("SELECT * FROM ingested_items WHERE timestamp BETWEEN :start AND :end ORDER BY timestamp ASC LIMIT :limit")
+    suspend fun itemsBetween(start: Long, end: Long, limit: Int): List<IngestedItemEntity>
 
     @Query("SELECT * FROM digests ORDER BY createdAt DESC LIMIT 1")
     suspend fun latestDigest(): DigestEntity?

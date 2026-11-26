@@ -1,6 +1,8 @@
 package ai.alal.app.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -50,7 +52,12 @@ data class IngestedItemEntity(
     val summarized: Boolean = false
 )
 
-/** A digest written by the model from a batch of [IngestedItemEntity]s. */
+/**
+ * A summary record: a digest of [IngestedItemEntity]s, or a "summary of summaries".
+ * (Table is still called `digests` for migration continuity.) Every row is independent:
+ * renaming, pinning, regenerating or deleting one never touches another. Parent links
+ * live in [SummaryLinkEntity].
+ */
 @Entity(tableName = "digests", indices = [Index("createdAt")])
 data class DigestEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -59,8 +66,36 @@ data class DigestEntity(
     val periodEnd: Long,
     val itemCount: Int,
     /** Markdown bullet list. */
-    val summary: String
+    val summary: String,
+    /** User-chosen name; null shows the creation date. */
+    val title: String? = null,
+    @ColumnInfo(defaultValue = "0") val updatedAt: Long = 0,
+    @ColumnInfo(defaultValue = "0") val pinned: Boolean = false,
+    /** A [SummaryOrigin] value: what [summary] was generated from. */
+    val sourceRef: String? = null
 )
+
+/** What a summary was generated from; decides how "Regenerate" rebuilds it. */
+object SummaryOrigin {
+    /** Collected phone activity between periodStart and periodEnd. */
+    const val ITEMS = "items"
+    /** Other summaries, linked through [SummaryLinkEntity]. */
+    const val SUMMARIES = "summaries"
+}
+
+/** Many-to-many link: [childId] was generated from [parentId]. Deleting a row drops its links only. */
+@Entity(
+    tableName = "summary_links",
+    primaryKeys = ["childId", "parentId"],
+    foreignKeys = [
+        ForeignKey(entity = DigestEntity::class, parentColumns = ["id"], childColumns = ["childId"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(entity = DigestEntity::class, parentColumns = ["id"], childColumns = ["parentId"], onDelete = ForeignKey.CASCADE)
+    ],
+    indices = [Index("parentId")]
+)
+data class SummaryLinkEntity(val childId: Long, val parentId: Long)
+
+data class LinkCount(val childId: Long, val count: Int)
 
 /** A to-do drafted by the model (from a digest) or added from chat. */
 @Entity(tableName = "todos", indices = [Index("done")])

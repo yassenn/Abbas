@@ -15,9 +15,10 @@ import java.io.File
 @Database(
     entities = [
         DocumentEntity::class, ChunkEntity::class, MessageEntity::class, ChatSessionEntity::class,
-        IngestedItemEntity::class, DigestEntity::class, TodoEntity::class, LocationPointEntity::class
+        IngestedItemEntity::class, DigestEntity::class, TodoEntity::class, LocationPointEntity::class,
+        SummaryLinkEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -90,6 +91,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v5 → v6: summaries become independent records with parent links (see [SummaryMigration]). */
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                SummaryMigration.STATEMENTS_5_6.forEach { db.execSQL(it) }
+            }
+        }
+
         /**
          * Ensures the on-disk DB is one SQLCipher can open with [passphrase].
          *
@@ -149,7 +157,7 @@ abstract class AppDatabase : RoomDatabase() {
                     DB_NAME
                 )
                     .openHelperFactory(factory)
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
